@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <title>Editar Funcionário</title>
+    <link rel="stylesheet" href="/css/bootstrap-4.0.0-dist/css/bootstrap.min.css">
+    <style>header, nav, main, footer, section { display: block; }</style>
+</head>
+<body>
+    <main class="container mt-5">
+        <h2>Editar Funcionário</h2>
+        <form action="/action/atualizar_funcionario" method="POST">
+            <input type="hidden" name="old_id" value="{{.ID}}">
+            <div class="form-group">
+                <label>ID:</label>
+                <input type="number" name="id" class="form-control" value="{{.ID}}" required>
+                <small class="form-text text-muted">Alterar o ID atualizará todo o histórico deste funcionário.</small>
+            </div>
+            <div class="form-group">
+                <label>Nome:</label>
+                <input type="text" name="nome" class="form-control" value="{{.Nome}}" required>
+            </div>
+            <div class="form-group">
+                <label>Cargo:</label>
+                <input type="text" name="cargo" class="form-control" value="{{.Cargo}}" required>
+            </div>
+            <button type="submit" class="btn btn-primary">Atualizar</button>
+        </form>
+        <br><a href="/page/lista_funcionarios" class="btn btn-secondary">Voltar</a>
+    </main>
+</body>
+</html>

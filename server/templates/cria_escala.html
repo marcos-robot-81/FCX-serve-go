@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <title>Criar Escala</title>
+    <link rel="stylesheet" href="/css/bootstrap-4.0.0-dist/css/bootstrap.min.css">
+    <style>
+        header, nav, main, footer, section { display: block; }
+        body { padding-top: 240px; } /* Espaço para o cabeçalho fixo */
+        .fixed-header {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            background-color: #fff;
+            z-index: 1000;
+            border-bottom: 2px solid #dee2e6;
+            padding-top: 10px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        .header-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        .compact-hours {
+            font-size: 0.85rem;
+            max-height: 50px;
+            overflow-y: auto;
+            border: 1px solid #ced4da;
+            padding: 5px;
+            background-color: #f8f9fa;
+            border-radius: 4px;
+        }
+        .form-check-inline { margin-right: 0.5rem; }
+        .table-cargo { margin-bottom: 40px; }
+        .table-cargo th { background-color: #f8f9fa; }
+    </style>
+</head>
+<body>
+    <!-- Cabeçalho Fixo -->
+    <header class="fixed-header">
+        <div class="container">
+            <!-- Linha do Título e Data -->
+            <div class="header-row">
+                <h3 class="m-0">Gerenciar Escala</h3>
+                <form method="GET" action="/page/cria_escala" class="form-inline">
+                    <label class="mr-2 font-weight-bold">Data:</label>
+                    <input type="date" name="data" value="{{.Data}}" class="form-control form-control-sm mr-2" onchange="this.form.submit()">
+                    <input type="hidden" name="cargo" value="{{.SelectedCargo}}">
+                    <button type="submit" class="btn btn-primary btn-sm">Carregar</button>
+                </form>
+            </div>
+
+            <!-- Formulário Compacto -->
+            <div class="card bg-light">
+                <div class="card-body p-2">
+                    <form action="/action/adicionar_escala" method="POST">
+                        <input type="hidden" name="data" value="{{.Data}}">
+                        <div class="form-row align-items-center">
+                            <div class="col-md-3">
+                                <select name="funcionario_id" class="form-control form-control-sm" required>
+                                    <option value="">Selecione o Funcionário...</option>
+                                    {{range .Funcionarios}}
+                                    <option value="{{.ID}}">{{.Nome}}</option>
+                                    {{end}}
+                                </select>
+                            </div>
+                            <div class="col-md-2">
+                                <select name="cargo" class="form-control form-control-sm" required onchange="window.location.href='/page/cria_escala?data={{.Data}}&cargo=' + this.value">
+                                    <option value="Operador" {{if eq .SelectedCargo "Operador"}}selected{{end}}>Operador</option>
+                                    <option value="Auxiliar" {{if eq .SelectedCargo "Auxiliar"}}selected{{end}}>Auxiliar</option>
+                                    <option value="Empacotador" {{if eq .SelectedCargo "Empacotador"}}selected{{end}}>Empacotador</option>
+                                    <option value="Apoio" {{if eq .SelectedCargo "Apoio"}}selected{{end}}>Apoio</option>
+                                    <option value="Líder" {{if eq .SelectedCargo "Líder"}}selected{{end}}>Líder</option>
+                                </select>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="compact-hours">
+                                    {{range $i := seq 1 24}}
+                                    <div class="form-check form-check-inline">
+                                        <input class="form-check-input" type="checkbox" name="hora_{{$i}}" id="h{{$i}}">
+                                        <label class="form-check-label" for="h{{$i}}">{{$i}}h</label>
+                                    </div>
+                                    {{end}}
+                                </div>
+                            </div>
+                            <div class="col-md-1">
+                                <button type="submit" class="btn btn-success btn-sm btn-block">Add</button>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <main class="container">
+        <!-- 5 Tabelas de Cargos -->
+        {{range $cargo, $horas := .Tabelas}}
+        <div class="table-cargo">
+            <h4 class="text-primary">{{$cargo}}</h4>
+            <table class="table table-bordered table-sm">
+                <thead>
+                    <tr>
+                        <th style="width: 80px;">Hora</th>
+                        <th>Funcionários Escalados</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{range $i, $quadro := $horas}}
+                    <tr>
+                        <!-- $i começa em 0, então hora é $i + 1 -->
+                        <td class="text-center font-weight-bold">{{add $i 1}}h</td>
+                        <td>
+                            {{range $quadro.Pessoas}}
+                                <span class="badge badge-info p-2 mr-1">
+                                    {{.NomeDoFuncionario}}
+                                    <a href="/action/remover_escala?data={{$.Data}}&hora={{add $i 1}}&id={{.FuncionarioID}}" class="text-white ml-2" title="Remover" onclick="return confirm('Remover desta hora?')">&times;</a>
+                                </span>
+                            {{else}}
+                                <span class="text-muted small">-</span>
+                            {{end}}
+                        </td>
+                    </tr>
+                    {{end}}
+                </tbody>
+            </table>
+        </div>
+        {{end}}
+
+        <br><a href="/page/home" class="btn btn-secondary">Voltar para Home</a>
+    </main>
+</body>
+</html>

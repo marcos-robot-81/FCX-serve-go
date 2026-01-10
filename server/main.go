@@ -1,77 +1,64 @@
 package main
 
 import (
-	"database/sql"
-	"encoding/json"
+	"html/template"
 	"log"
 	"net/http"
 
-	_ "modernc.org/sqlite" // O driver Pure Go (o underline é importante)
+	"fcx-box/database"
+	"fcx-box/handlers"
 )
 
-// 1. MODELO (Equivalente à sua Classe Java)
-// As tags `json:"..."` ensinam como transformar em JSON
-type Tarefa struct {
-	ID        int    `json:"id"`
-	Descricao string `json:"descricao"`
-	Feita     bool   `json:"feita"`
-}
-
 func main() {
-	// 2. CONEXÃO COM BANCO (Cria o arquivo se não existir)
-	db, err := sql.Open("sqlite", "./dados.db")
-	if err != nil {
-		log.Fatal(err) // Se falhar aqui, o programa para (tipo um System.exit)
-	}
+	// 1. Inicializa Banco de Dados
+	db := database.Conectar()
 	defer db.Close() // Fecha a conexão quando a main terminar
 
-	// Cria a tabela se não existir
-	sqlStmt := `create table if not exists tarefas (id integer not null primary key, descricao text, feita bool);`
-	_, err = db.Exec(sqlStmt)
-	if err != nil {
-		log.Printf("%q: %s\n", err, sqlStmt)
-		return
+	// 2. Carrega Templates
+	// Adiciona funções auxiliares para usar no HTML (seq para loop, add para soma)
+	funcMap := template.FuncMap{
+		"seq": func(start, end int) []int {
+			var s []int
+			for i := start; i <= end; i++ {
+				s = append(s, i)
+			}
+			return s
+		},
+		"add": func(a, b int) int { return a + b },
+	}
+	tmpl := template.Must(template.New("").Funcs(funcMap).ParseGlob("templates/*.html"))
+
+	// 3. Inicializa Handlers
+	app := &handlers.App{
+		DB:   db,
+		Tmpl: tmpl,
 	}
 
-	// 3. DEFINIÇÃO DAS ROTAS (Endpoints)
-	// Em Java seria o @GetMapping
-	http.HandleFunc("/tarefas", func(w http.ResponseWriter, r *http.Request) {
-		// Define que a resposta é JSON
-		w.Header().Set("Content-Type", "application/json")
+	// 4. Rotas
+	http.HandleFunc("/", app.PageIndex)
+	http.HandleFunc("/page/home", app.PageHome)
+	http.HandleFunc("/page/menu", app.PageMenu)
+	http.HandleFunc("/funcionarios", app.ListarFuncionarios)
+	http.HandleFunc("/produtos", app.ProdutosHandler)
+	http.HandleFunc("/page/novo_funcionario", app.PageNovoFuncionario)
+	http.HandleFunc("/action/salvar_funcionario", app.ActionSalvarFuncionario)
+	http.HandleFunc("/page/nova_retirada", app.PageNovaRetirada)
+	http.HandleFunc("/action/salvar_retirada", app.ActionSalvarRetirada)
+	http.HandleFunc("/page/deletar_funcionario", app.PageDeletarFuncionario)
+	http.HandleFunc("/action/deletar_funcionario", app.ActionDeletarFuncionario)
+	http.HandleFunc("/page/lista_funcionarios", app.PageListarFuncionarios)
+	http.HandleFunc("/page/historico_funcionario", app.PageHistoricoFuncionario)
+	http.HandleFunc("/page/editar_funcionario", app.PageEditarFuncionario)
+	http.HandleFunc("/action/atualizar_funcionario", app.ActionAtualizarFuncionario)
+	http.HandleFunc("/api/batch_funcionarios", app.BatchAddFuncionarios)
+	http.HandleFunc("/page/cria_escala", app.PageCriaEscala)
+	http.HandleFunc("/action/adicionar_escala", app.ActionAdicionarEscala)
+	http.HandleFunc("/action/remover_escala", app.ActionRemoverEscala)
 
-		// Consulta no banco
-		rows, err := db.Query("SELECT id, descricao, feita FROM tarefas")
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		defer rows.Close()
+	// Servir arquivos estáticos (CSS)
+	http.Handle("/css/", http.StripPrefix("/css/", http.FileServer(http.Dir("./css"))))
 
-		var lista []Tarefa
-
-		// Loop para ler linha a linha (ResultSet)
-		for rows.Next() {
-			var t Tarefa
-			// Mapeia as colunas para a struct
-			if err := rows.Scan(&t.ID, &t.Descricao, &t.Feita); err != nil {
-				log.Printf("Erro ao ler linha: %v", err)
-				continue
-			}
-			lista = append(lista, t)
-		}
-
-		// Verifica se houve erro durante a iteração das linhas
-		if err = rows.Err(); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-
-		// Converte a lista para JSON e escreve na resposta
-		json.NewEncoder(w).Encode(lista)
-	})
-
-	// 4. SOBE O SERVIDOR
+	// 5. Sobe o Servidor
 	log.Println("Servidor rodando na porta :8080...")
-	// Roda e trava aqui esperando requisições
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }

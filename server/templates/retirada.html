@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <title>Retirada de Produto</title>
+    <link rel="stylesheet" href="/css/bootstrap-4.0.0-dist/css/bootstrap.min.css">
+    <style>header, nav, main, footer, section { display: block; }</style>
+</head>
+<body>
+    <main class="container mt-5">
+        <h2>Registrar Retirada</h2>
+
+    <script>
+        var listaFuncionarios = [];
+
+        // Carrega a lista ao iniciar a página (lendo do datalist para evitar erros de template no JS)
+        document.addEventListener("DOMContentLoaded", function() {
+            var options = document.querySelectorAll('#datalist_funcs option');
+            for (var i = 0; i < options.length; i++) {
+                listaFuncionarios.push({
+                    id: options[i].getAttribute('data-id'),
+                    nome: options[i].value
+                });
+            }
+        });
+
+        function confirmarEnvio(e) {
+            e.preventDefault(); // Impede o envio imediato do formulário
+            var input = document.getElementById("input_busca");
+            var val = input.value.trim();
+            
+            // Busca o funcionário pelo ID ou pelo Nome (ignorando maiúsculas/minúsculas)
+            var func = listaFuncionarios.find(f => f.id === val || f.nome.toLowerCase() === val.toLowerCase());
+
+            if (func) {
+                // Mostra a janela de confirmação
+                if (confirm("Confirma este funcionário?\n\nNome: " + func.nome + "\nID: " + func.id)) {
+                    document.getElementById("hidden_id").value = func.id;
+                    e.target.submit(); // Envia o formulário se confirmado
+                }
+            } else {
+                alert("Funcionário não encontrado! Verifique o ID ou Nome digitado.");
+            }
+        }
+    </script>
+
+    <form action="/action/salvar_retirada" method="POST" onsubmit="confirmarEnvio(event)">
+        <div class="form-group">
+            <label>Quem está retirando? (ID ou Nome)</label>
+            <input type="text" id="input_busca" list="datalist_funcs" class="form-control" required placeholder="Digite ID ou Nome..." autocomplete="off">
+            <datalist id="datalist_funcs">
+                {{range .}}
+                    <option value="{{.Nome}}" data-id="{{.ID}}">ID: {{.ID}}</option>
+                {{end}}
+            </datalist>
+            <!-- Campo oculto para enviar o nome correto para o backend -->
+            <input type="hidden" name="funcionario_id" id="hidden_id">
+        </div>
+
+        <div class="form-group">
+            <label>Tipo do Produto:</label>
+            <input type="text" name="tipo" value="Paninho" disabled class="form-control" placeholder="Ex: Cabo HDMI" required>
+        </div>
+
+        <div class="form-group">
+            <label>Quantidade:</label>
+            <input type="number" name="quantidade" class="form-control" value="1" required>
+        </div>
+
+        <button type="submit" class="btn btn-primary">Registrar Retirada</button>
+    </form>
+    <br><a href="/page/home" class="btn btn-secondary">Voltar</a>
+    </main>
+</body>
+</html>

@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <title>Novo Funcionário</title>
+    <link rel="stylesheet" href="/css/bootstrap-4.0.0-dist/css/bootstrap.min.css">
+    <style>header, nav, main, footer, section { display: block; }</style>
+</head>
+<body>
+    <main class="container mt-5">
+        <h2>Adicionar Funcionário</h2>
+        <form action="/action/salvar_funcionario" method="POST">
+            <div class="form-group">
+                <label>ID (Opcional):</label>
+                <input type="number" name="id" class="form-control" placeholder="Deixe vazio para gerar automaticamente">
+            </div>
+            <div class="form-group">
+                <label>Nome:</label>
+                <input type="text" name="nome" class="form-control" required>
+            </div>
+            <div class="form-group">
+                <label>Cargo:</label>
+                <input type="text" name="cargo" class="form-control" required>
+            </div>
+            <button type="submit" class="btn btn-primary">Salvar</button>
+        </form>
+        <br><a href="/page/home" class="btn btn-secondary">Voltar</a>
+    </main>
+</body>
+</html>

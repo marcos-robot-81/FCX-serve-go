@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <title>Histórico do Funcionário</title>
+    <link rel="stylesheet" href="/css/bootstrap-4.0.0-dist/css/bootstrap.min.css">
+    <style>header, nav, main, footer, section { display: block; }</style>
+</head>
+<body>
+    <main class="container mt-5">
+        <h2>Histórico de Retiradas: {{.Nome}}</h2>
+    
+    <form method="GET" action="/page/historico_funcionario" class="form-inline">
+        <input type="hidden" name="id" value="{{.ID}}">
+        <label class="mr-2">De:</label>
+        <input type="date" name="data_inicio" value="{{.DataInicio}}" class="form-control mr-3">
+        <label class="mr-2">Até:</label>
+        <input type="date" name="data_fim" value="{{.DataFim}}" class="form-control mr-3">
+        <button type="submit" class="btn btn-primary">Filtrar Período</button>
+    </form>
+    <br>
+
+    <div class="alert alert-secondary">
+        <h5 class="alert-heading">Resumo do Período:</h5>
+        <hr>
+        <p class="mb-0">Total de Itens Retirados: <strong>{{.Soma}}</strong></p>
+        <p class="mb-0">Média por Retirada: <strong>{{printf "%.2f" .Media}}</strong></p>
+        <p class="mb-0">Média por Hora (Ativa): <strong>{{printf "%.2f" .MediaPorHora}}</strong></p>
+    </div>
+
+    <table class="table table-striped table-bordered">
+        <thead class="thead-dark">
+            <tr>
+                <th>Data</th>
+                <th>Hora</th>
+                <th>Produto</th>
+                <th>Quantidade</th>
+            </tr>
+        </thead>
+        <tbody>
+            {{range .Produtos}}
+            <tr>
+                <td>{{.Data}}</td>
+                <td>{{.Hora}}</td>
+                <td>{{.Tipo}}</td>
+                <td>{{.Quantidade}}</td>
+            </tr>
+            {{end}}
+            {{if not .Produtos}}
+            <tr><td colspan="4">Nenhuma retirada encontrada neste período.</td></tr>
+            {{end}}
+        </tbody>
+    </table>
+
+    <br><a href="/page/lista_funcionarios" class="btn btn-secondary">Voltar para Lista</a>
+    </main>
+</body>
+</html>
