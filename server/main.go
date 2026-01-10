@@ -4,6 +4,7 @@ import (
 	"html/template"
 	"log"
 	"net/http"
+	"strings"
 
 	"fcx-box/database"
 	"fcx-box/handlers"
@@ -25,6 +26,25 @@ func main() {
 			return s
 		},
 		"add": func(a, b int) int { return a + b },
+		"get": func(list []string, idx int) string {
+			if idx >= 0 && idx < len(list) {
+				return list[idx]
+			}
+			return ""
+		},
+		"firstName": func(s string) string {
+			if idx := strings.Index(s, " "); idx != -1 {
+				return s[:idx]
+			}
+			return s
+		},
+		"truncate": func(s string, n int) string {
+			runes := []rune(s)
+			if len(runes) > n {
+				return string(runes[:n])
+			}
+			return s
+		},
 	}
 	tmpl := template.Must(template.New("").Funcs(funcMap).ParseGlob("templates/*.html"))
 
@@ -54,9 +74,14 @@ func main() {
 	http.HandleFunc("/page/cria_escala", app.PageCriaEscala)
 	http.HandleFunc("/action/adicionar_escala", app.ActionAdicionarEscala)
 	http.HandleFunc("/action/remover_escala", app.ActionRemoverEscala)
+	http.HandleFunc("/action/atualizar_status", app.ActionAtualizarStatus)
+	http.HandleFunc("/action/atualizar_tarefa", app.ActionAtualizarTarefa)
+	http.HandleFunc("/api/historico_anterior", app.APIGetHistoricoAnterior)
+	http.HandleFunc("/page/imprimir_escala", app.PageImprimirEscala)
 
 	// Servir arquivos estáticos (CSS)
 	http.Handle("/css/", http.StripPrefix("/css/", http.FileServer(http.Dir("./css"))))
+	http.Handle("/midias/", http.StripPrefix("/midias/", http.FileServer(http.Dir("./midias"))))
 
 	// 5. Sobe o Servidor
 	log.Println("Servidor rodando na porta :8080...")

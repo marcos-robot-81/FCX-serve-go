@@ -358,6 +358,62 @@ func (app *App) BatchAddFuncionarios(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "Sucesso! %d funcionários importados.", len(funcionarios))
 }
 
+// --- API AUXILIAR PARA O FRONTEND ---
+
+func (app *App) APIGetHistoricoAnterior(w http.ResponseWriter, r *http.Request) {
+	dataStr := r.URL.Query().Get("data")
+	idStr := r.URL.Query().Get("id")
+	id, _ := strconv.Atoi(idStr)
+
+	// Calcula data anterior
+	t, err := time.Parse("2006-01-02", dataStr)
+	if err != nil {
+		http.Error(w, "Data inválida", http.StatusBadRequest)
+		return
+	}
+	prevDate := t.AddDate(0, 0, -1).Format("2006-01-02")
+
+	var jsonContent string
+	err = app.DB.QueryRow("SELECT json_content FROM escalas WHERE data = ?", prevDate).Scan(&jsonContent)
+
+	w.Header().Set("Content-Type", "application/json")
+
+	if err != nil {
+		// Sem escala no dia anterior
+		fmt.Fprintf(w, `{"data": "%s", "mensagem": "Sem registro."}`, prevDate)
+		return
+	}
+
+	var dia models.DiaDeTrabalho
+	json.Unmarshal([]byte(jsonContent), &dia)
+
+	// Coleta atribuições únicas do dia anterior
+	atribuicoes := make(map[string]bool)
+	for h := 1; h <= 24; h++ {
+		q := getQuadro(&dia, h)
+		for _, p := range q.Pessoas {
+			if p.FuncionarioID == id {
+				vals := []string{p.Caixa1, p.Caixa2, p.Caixa3, p.Tarefa1, p.Tarefa2, p.Tarefa3}
+				for _, v := range vals {
+					if v != "" {
+						atribuicoes[v] = true
+					}
+				}
+			}
+		}
+	}
+
+	var resumo string
+	for k := range atribuicoes {
+		if resumo != "" {
+			resumo += ", "
+		}
+		resumo += k
+	}
+
+	fmt.Fprintf(w, `{"data": "%s", "mensagem": "%s"}`, prevDate, resumo)
+}
+
 // --- ESCALA (DIA DE TRABALHO) ---
 
 type EscalaViewData struct {
@@ -408,6 +464,42 @@ func (app *App) PageCriaEscala(w http.ResponseWriter, r *http.Request) {
 	}
 	dia.Data = data
 
+	// --- LÓGICA DO HISTÓRICO ANTERIOR (PLACEHOLDER) ---
+	tCurrent, _ := time.Parse("2006-01-02", data)
+	prevDate := tCurrent.AddDate(0, 0, -1).Format("2006-01-02")
+	var prevJson string
+	var prevDia models.DiaDeTrabalho
+	historicoMap := make(map[int][]string)
+
+	// Tenta carregar o dia anterior
+	if err := app.DB.QueryRow("SELECT json_content FROM escalas WHERE data = ?", prevDate).Scan(&prevJson); err == nil {
+		json.Unmarshal([]byte(prevJson), &prevDia)
+
+		// Mapa temporário para garantir unicidade das tarefas: ID -> Tarefa -> bool
+		tempMap := make(map[int][]string)
+		seen := make(map[int]map[string]bool)
+
+		for h := 1; h <= 24; h++ {
+			q := getQuadro(&prevDia, h)
+			for _, p := range q.Pessoas {
+				if seen[p.FuncionarioID] == nil {
+					seen[p.FuncionarioID] = make(map[string]bool)
+				}
+
+				vals := []string{p.Caixa1, p.Caixa2, p.Caixa3, p.Tarefa1, p.Tarefa2, p.Tarefa3}
+				for _, v := range vals {
+					if v != "" && !seen[p.FuncionarioID][v] {
+						seen[p.FuncionarioID][v] = true
+						tempMap[p.FuncionarioID] = append(tempMap[p.FuncionarioID], v)
+					}
+				}
+			}
+		}
+		for id, tasks := range tempMap {
+			historicoMap[id] = tasks
+		}
+	}
+
 	// 3. Organiza os dados para as 5 tabelas (Cargo -> 24 Horas)
 	cargos := []string{"Operador", "Auxiliar", "Empacotador", "Apoio", "Líder"}
 	tabelas := make(map[string][]models.Quadro)
@@ -420,6 +512,10 @@ func (app *App) PageCriaEscala(w http.ResponseWriter, r *http.Request) {
 			var pessoasDoCargo []models.EscalaPessoa
 			for _, p := range quadroOriginal.Pessoas {
 				if p.Cargo == cargo {
+					// Injeta o histórico no campo temporário
+					if hist, ok := historicoMap[p.FuncionarioID]; ok {
+						p.HistoricoAnterior = hist
+					}
 					pessoasDoCargo = append(pessoasDoCargo, p)
 				}
 			}
@@ -436,6 +532,70 @@ func (app *App) PageCriaEscala(w http.ResponseWriter, r *http.Request) {
 	}
 
 	app.Tmpl.ExecuteTemplate(w, "cria_escala.html", viewData)
+}
+
+func (app *App) PageImprimirEscala(w http.ResponseWriter, r *http.Request) {
+	data := r.URL.Query().Get("data")
+	cargosSelected := r.URL.Query()["cargos"] // Pega múltiplos valores do checkbox
+
+	if data == "" {
+		http.Error(w, "Data é obrigatória", http.StatusBadRequest)
+		return
+	}
+
+	// Carrega a escala
+	var jsonContent string
+	var dia models.DiaDeTrabalho
+	err := app.DB.QueryRow("SELECT json_content FROM escalas WHERE data = ?", data).Scan(&jsonContent)
+	if err == nil {
+		json.Unmarshal([]byte(jsonContent), &dia)
+	}
+	dia.Data = data
+
+	// Se nenhum cargo foi selecionado, seleciona todos por padrão
+	if len(cargosSelected) == 0 {
+		cargosSelected = []string{"Operador", "Auxiliar", "Empacotador", "Apoio", "Líder"}
+	}
+
+	tabelas := make(map[string][]models.Quadro)
+	var cargosOrdenados []string
+	ordemPadrao := []string{"Operador", "Auxiliar", "Empacotador", "Apoio", "Líder"}
+
+	selMap := make(map[string]bool)
+	for _, c := range cargosSelected {
+		selMap[c] = true
+	}
+
+	for _, cargo := range ordemPadrao {
+		if selMap[cargo] {
+			cargosOrdenados = append(cargosOrdenados, cargo)
+			var horas []models.Quadro
+			for h := 1; h <= 24; h++ {
+				quadroOriginal := getQuadro(&dia, h)
+				var pessoasDoCargo []models.EscalaPessoa
+				for _, p := range quadroOriginal.Pessoas {
+					if p.Cargo == cargo {
+						pessoasDoCargo = append(pessoasDoCargo, p)
+					}
+				}
+				horas = append(horas, models.Quadro{Pessoas: pessoasDoCargo})
+			}
+			tabelas[cargo] = horas
+		}
+	}
+
+	// Reutiliza a estrutura de dados passando também a ordem dos cargos
+	dataView := struct {
+		Data        string
+		Tabelas     map[string][]models.Quadro
+		CargosOrdem []string
+	}{
+		Data:        data,
+		Tabelas:     tabelas,
+		CargosOrdem: cargosOrdenados,
+	}
+
+	app.Tmpl.ExecuteTemplate(w, "imprimir_escala.html", dataView)
 }
 
 func (app *App) ActionAdicionarEscala(w http.ResponseWriter, r *http.Request) {
@@ -507,6 +667,87 @@ func (app *App) ActionRemoverEscala(w http.ResponseWriter, r *http.Request) {
 	app.DB.Exec("UPDATE escalas SET json_content = ? WHERE data = ?", string(novoJson), data)
 
 	http.Redirect(w, r, "/page/cria_escala?data="+data, http.StatusSeeOther)
+}
+
+func (app *App) ActionAtualizarStatus(w http.ResponseWriter, r *http.Request) {
+	data := r.URL.Query().Get("data")
+	hora, _ := strconv.Atoi(r.URL.Query().Get("hora"))
+	funcID, _ := strconv.Atoi(r.URL.Query().Get("id"))
+	status := r.URL.Query().Get("status")
+	cargoFilter := r.URL.Query().Get("cargo") // Para manter o filtro após reload
+
+	var jsonContent string
+	var dia models.DiaDeTrabalho
+	if err := app.DB.QueryRow("SELECT json_content FROM escalas WHERE data = ?", data).Scan(&jsonContent); err != nil {
+		http.Redirect(w, r, "/page/cria_escala?data="+data, http.StatusSeeOther)
+		return
+	}
+	json.Unmarshal([]byte(jsonContent), &dia)
+
+	quadro := getQuadro(&dia, hora)
+	for i, p := range quadro.Pessoas {
+		if p.FuncionarioID == funcID {
+			quadro.Pessoas[i].Status = status
+			break
+		}
+	}
+	setQuadro(&dia, hora, quadro)
+
+	novoJson, _ := json.Marshal(dia)
+	app.DB.Exec("UPDATE escalas SET json_content = ? WHERE data = ?", string(novoJson), data)
+
+	redirectURL := fmt.Sprintf("/page/cria_escala?data=%s&cargo=%s", data, cargoFilter)
+	http.Redirect(w, r, redirectURL, http.StatusSeeOther)
+}
+
+func (app *App) ActionAtualizarTarefa(w http.ResponseWriter, r *http.Request) {
+	data := r.URL.Query().Get("data")
+	hora, _ := strconv.Atoi(r.URL.Query().Get("hora"))
+	funcID, _ := strconv.Atoi(r.URL.Query().Get("id"))
+	coluna := r.URL.Query().Get("coluna") // "1", "2", "3"
+	valor := r.URL.Query().Get("valor")
+	cargoFilter := r.URL.Query().Get("cargo")
+
+	var jsonContent string
+	var dia models.DiaDeTrabalho
+	if err := app.DB.QueryRow("SELECT json_content FROM escalas WHERE data = ?", data).Scan(&jsonContent); err != nil {
+		http.Redirect(w, r, "/page/cria_escala?data="+data, http.StatusSeeOther)
+		return
+	}
+	json.Unmarshal([]byte(jsonContent), &dia)
+
+	quadro := getQuadro(&dia, hora)
+	for i, p := range quadro.Pessoas {
+		if p.FuncionarioID == funcID {
+			if p.Cargo == "Operador" {
+				switch coluna {
+				case "1":
+					quadro.Pessoas[i].Caixa1 = valor
+				case "2":
+					quadro.Pessoas[i].Caixa2 = valor
+				case "3":
+					quadro.Pessoas[i].Caixa3 = valor
+				}
+			} else {
+				switch coluna {
+				case "1":
+					quadro.Pessoas[i].Tarefa1 = valor
+				case "2":
+					quadro.Pessoas[i].Tarefa2 = valor
+				case "3":
+					quadro.Pessoas[i].Tarefa3 = valor
+				}
+			}
+			break
+		}
+	}
+	setQuadro(&dia, hora, quadro)
+
+	novoJson, _ := json.Marshal(dia)
+	app.DB.Exec("UPDATE escalas SET json_content = ? WHERE data = ?", string(novoJson), data)
+
+	redirectURL := fmt.Sprintf("/page/cria_escala?data=%s&cargo=%s", data, cargoFilter)
+	http.Redirect(w, r, redirectURL, http.StatusSeeOther)
 }
 
 // Helpers para mapear Hora1...Hora24 dinamicamente

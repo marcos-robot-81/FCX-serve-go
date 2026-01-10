@@ -25,16 +25,18 @@ type EscalaPessoa struct {
 	FuncionarioID     int    `json:"funcionario_id"`
 	NomeDoFuncionario string `json:"nome_do_funcionario"`
 	Cargo             string `json:"cargo"`      // Adicionado para filtro
+	Status            string `json:"status"`     // Novo campo: Presente, Falta, Folga, Outro
 	Presente          bool   `json:"presente"`   // Corrigido de Veinho
 	Intervalos        bool   `json:"intervalos"` // Corrigido de Entevalos
 	Descanso          bool   `json:"descanso"`
 	// Campos opcionais de Operador/Empacotador
-	Caixa1  string `json:"caixa1,omitempty"`
-	Caixa2  string `json:"caixa2,omitempty"`
-	Caixa3  string `json:"caixa3,omitempty"`
-	Tarefa1 string `json:"tarefa1,omitempty"`
-	Tarefa2 string `json:"tarefa2,omitempty"`
-	Tarefa3 string `json:"tarefa3,omitempty"`
+	Caixa1            string   `json:"caixa1,omitempty"`
+	Caixa2            string   `json:"caixa2,omitempty"`
+	Caixa3            string   `json:"caixa3,omitempty"`
+	Tarefa1           string   `json:"tarefa1,omitempty"`
+	Tarefa2           string   `json:"tarefa2,omitempty"`
+	Tarefa3           string   `json:"tarefa3,omitempty"`
+	HistoricoAnterior []string `json:"-"` // Campo apenas para visualização (placeholder)
 }
 
 type Quadro struct {

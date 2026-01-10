@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <title>Imprimir Escala - {{.Data}}</title>
+    <link rel="stylesheet" href="/css/bootstrap-4.0.0-dist/css/bootstrap.min.css">
+    <style>
+        body { padding: 10px; background: white; font-family: Arial, sans-serif; font-size: 12px; }
+        
+        /* Layout lado a lado */
+        .print-container { font-size: 0; /* Remove espaços entre inline-blocks */ }
+        .print-box { 
+            display: inline-block; 
+            vertical-align: top; 
+            width: 245px; /* Largura fixa para fluxo dinâmico (caber o máximo possível por linha) */
+            margin-right: 5px; 
+            margin-bottom: 10px; 
+            font-size: 12px; /* Restaura tamanho da fonte */
+            page-break-inside: avoid; /* Evita quebrar a tabela no meio */
+        }
+
+        .table-print { width: 100%; margin-bottom: 0; }
+        .table-print th, .table-print td { border: 1px solid #000 !important; padding: 1px; color: #000; line-height: 1.1; }
+        h4 { margin-top: 0; border-bottom: 1px solid #000; padding-bottom: 2px; color: #000; font-size: 14px; font-weight: bold; }
+        
+        /* Esconde botões na hora da impressão */
+        @media print {
+            .no-print { display: none; }
+            body { padding: 0; }
+        }
+    </style>
+</head>
+<body>
+    <div class="no-print mb-3">
+        <button onclick="window.print()" class="btn btn-primary">Imprimir Agora</button>
+        <button onclick="window.close()" class="btn btn-secondary">Fechar</button>
+    </div>
+
+    <h2 class="text-center">Escala do Dia: {{.Data}}</h2>
+
+    <div class="print-container">
+    {{range $cargo := .CargosOrdem}}
+        {{$horas := index $.Tabelas $cargo}}
+        <div class="print-box">
+        <h4>{{$cargo}}</h4>
+        <table class="table table-sm table-print">
+            <thead>
+                <tr>
+                    <th style="width: 20px; text-align: center;">H</th>
+                    <th>Funcionários</th>
+                </tr>
+            </thead>
+            <tbody>
+                {{range $i, $quadro := $horas}}
+                {{if $quadro.Pessoas}}
+                <tr>
+                    <td class="text-center font-weight-bold" style="vertical-align: middle;">{{add $i 1}}</td>
+                    <td class="p-0">
+                        <table class="table table-sm table-borderless mb-0" style="width: 100%;">
+                            {{range $quadro.Pessoas}}
+                            <tr style="border-bottom: 1px dotted #ccc;">
+                                <td style="padding: 0 2px; white-space: nowrap;">
+                                    <span style="font-weight: bold; margin-right: 3px;">{{firstName .NomeDoFuncionario}}</span>
+                                    {{if eq $cargo "Operador"}}
+                                        <span style="margin-right: 2px;">C1:<strong>{{if .Caixa1}}{{truncate .Caixa1 4}}{{else}}_{{end}}</strong></span>
+                                        <span style="margin-right: 2px;">C2:<strong>{{if .Caixa2}}{{truncate .Caixa2 4}}{{else}}_{{end}}</strong></span>
+                                        <span>Ex:<strong>{{if .Caixa3}}{{truncate .Caixa3 4}}{{else}}_{{end}}</strong></span>
+                                    {{else}}
+                                        <span style="margin-right: 2px;">1:<strong>{{if .Tarefa1}}{{truncate .Tarefa1 4}}{{else}}_{{end}}</strong></span>
+                                        <span style="margin-right: 2px;">2:<strong>{{if .Tarefa2}}{{truncate .Tarefa2 4}}{{else}}_{{end}}</strong></span>
+                                        <span>3:<strong>{{if .Tarefa3}}{{truncate .Tarefa3 4}}{{else}}_{{end}}</strong></span>
+                                    {{end}}
+                                </td>
+                            </tr>
+                            {{end}}
+                        </table>
+                    </td>
+                </tr>
+                {{end}}
+                {{end}}
+            </tbody>
+        </table>
+        </div>
+    {{end}}
+    </div>
+</body>
+</html>

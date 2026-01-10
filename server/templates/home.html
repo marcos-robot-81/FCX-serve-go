@@ -12,6 +12,11 @@
             padding: 0;
             font-family: Arial, sans-serif;
             overflow-x: hidden; /* Evita barra de rolagem horizontal ao abrir menu */
+            background-image: url('/midias/img/homen-predio.png');
+            background-repeat: no-repeat;
+            background-position: center center;
+            background-attachment: fixed;
+            background-size: cover; /* Ignorado por navegadores muito antigos, mas melhora visual nos novos */
         }
 
         /* Menu Lateral (Sidebar) */
@@ -68,6 +73,13 @@
             padding: 10px 15px;
             border: none;
         }
+
+        .texto-destaque {
+            text-align: center;
+            margin-top: 100px;
+            color: #ffffff;
+            text-shadow: 2px 2px 4px #000000; /* Sombra para garantir leitura sobre qualquer imagem */
+        }
     </style>
 </head>
 <body>
@@ -87,6 +99,10 @@
         <button class="openbtn" onclick="abrirNav()">&#9776; Menu</button>
         
         <div class="container mt-4">
+            <div class="texto-destaque">
+                <h1>Sistema de Gerenciamento TV Box</h1>
+                <h2>Controle de Estoque e Escalas</h2>
+            </div>
         </div>
     </main>
 

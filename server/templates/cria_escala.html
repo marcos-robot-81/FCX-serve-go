@@ -5,7 +5,7 @@
     <link rel="stylesheet" href="/css/bootstrap-4.0.0-dist/css/bootstrap.min.css">
     <style>
         header, nav, main, footer, section { display: block; }
-        body { padding-top: 240px; } /* Espaço para o cabeçalho fixo */
+        body { padding-top: 240px; padding-bottom: 70px; } /* Espaço para cabeçalho e rodapé fixos */
         .fixed-header {
             position: fixed;
             top: 0;
@@ -16,6 +16,17 @@
             border-bottom: 2px solid #dee2e6;
             padding-top: 10px;
             box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        .fixed-footer {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            background-color: #fff;
+            z-index: 1000;
+            border-top: 2px solid #dee2e6;
+            padding: 10px;
+            box-shadow: 0 -4px 6px rgba(0,0,0,0.1);
         }
         .header-row {
             display: flex;
@@ -35,6 +46,20 @@
         .form-check-inline { margin-right: 0.5rem; }
         .table-cargo { margin-bottom: 40px; }
         .table-cargo th { background-color: #f8f9fa; }
+
+        /* Estilos de Status */
+        .row-falta { background-color: #f8d7da !important; } /* Vermelho */
+        .row-presente { background-color: #d4edda !important; } /* Verde */
+        .row-outro { background-color: #fff3cd !important; } /* Amarelo */
+        .row-folga .nome-func { text-decoration: line-through; color: #888; } /* Riscado */
+
+        /* Menu Flutuante */
+        #menuStatus {
+            display: none; position: absolute; background: white; 
+            border: 1px solid #999; box-shadow: 2px 2px 5px rgba(0,0,0,0.3); z-index: 2000;
+        }
+        #menuStatus a { display: block; padding: 8px 15px; text-decoration: none; color: #333; border-bottom: 1px solid #eee; }
+        #menuStatus a:hover { background-color: #f1f1f1; }
     </style>
 </head>
 <body>
@@ -109,27 +134,125 @@
                 </thead>
                 <tbody>
                     {{range $i, $quadro := $horas}}
+                    {{if $quadro.Pessoas}}
                     <tr>
                         <!-- $i começa em 0, então hora é $i + 1 -->
                         <td class="text-center font-weight-bold">{{add $i 1}}h</td>
-                        <td>
+                        <td class="p-0">
+                            <table class="table table-sm table-borderless mb-0" style="background-color: transparent;">
+                                <thead class="text-muted small">
+                                    <tr>
+                                        <th style="width: 60px;">Sts</th>
+                                        <th>Nome</th>
+                                        <th>{{if eq $cargo "Operador"}}Cx 1{{else}}Trf 1{{end}}</th>
+                                        <th>{{if eq $cargo "Operador"}}Cx 2{{else}}Trf 2{{end}}</th>
+                                        <th>{{if eq $cargo "Operador"}}Extra{{else}}Trf 3{{end}}</th>
+                                        <th style="width: 30px;"></th>
+                                    </tr>
+                                </thead>
+                                <tbody>
                             {{range $quadro.Pessoas}}
-                                <span class="badge badge-info p-2 mr-1">
-                                    {{.NomeDoFuncionario}}
-                                    <a href="/action/remover_escala?data={{$.Data}}&hora={{add $i 1}}&id={{.FuncionarioID}}" class="text-white ml-2" title="Remover" onclick="return confirm('Remover desta hora?')">&times;</a>
-                                </span>
-                            {{else}}
-                                <span class="text-muted small">-</span>
+                                    <tr class='{{if eq .Status "Falta"}}row-falta{{else if eq .Status "Presente"}}row-presente{{else if eq .Status "Outro"}}row-outro{{else if eq .Status "Folga"}}row-folga{{end}}'>
+                                        <td style="cursor: pointer; text-align: center; font-weight: bold; font-size: 1.2em;" onclick="abrirMenuStatus(event, '{{$.Data}}', {{add $i 1}}, {{.FuncionarioID}})">
+                                            &#8942;
+                                        </td>
+                                        <td class="nome-func">{{.NomeDoFuncionario}}</td>
+                                        <td><input type="text" class="form-control form-control-sm p-1" style="min-width: 60px;" value='{{if eq .Cargo "Operador"}}{{.Caixa1}}{{else}}{{.Tarefa1}}{{end}}' placeholder='{{get .HistoricoAnterior 0}}' onchange="atualizarTarefa(this, '{{$.Data}}', {{add $i 1}}, {{.FuncionarioID}}, '1')"></td>
+                                        <td><input type="text" class="form-control form-control-sm p-1" style="min-width: 60px;" value='{{if eq .Cargo "Operador"}}{{.Caixa2}}{{else}}{{.Tarefa2}}{{end}}' placeholder='{{get .HistoricoAnterior 1}}' onchange="atualizarTarefa(this, '{{$.Data}}', {{add $i 1}}, {{.FuncionarioID}}, '2')"></td>
+                                        <td><input type="text" class="form-control form-control-sm p-1" style="min-width: 60px;" value='{{if eq .Cargo "Operador"}}{{.Caixa3}}{{else}}{{.Tarefa3}}{{end}}' placeholder='{{get .HistoricoAnterior 2}}' onchange="atualizarTarefa(this, '{{$.Data}}', {{add $i 1}}, {{.FuncionarioID}}, '3')"></td>
+                                        <td>
+                                            <a href="/action/remover_escala?data={{$.Data}}&hora={{add $i 1}}&id={{.FuncionarioID}}" class="text-danger font-weight-bold" title="Remover" onclick="return confirm('Remover desta hora?')">&times;</a>
+                                        </td>
+                                    </tr>
                             {{end}}
+                                </tbody>
+                            </table>
                         </td>
                     </tr>
+                    {{end}}
                     {{end}}
                 </tbody>
             </table>
         </div>
         {{end}}
 
-        <br><a href="/page/home" class="btn btn-secondary">Voltar para Home</a>
     </main>
+    <footer class="fixed-footer text-center">
+        <a href="/page/home" class="btn btn-secondary">Voltar para Home</a>
+        <button type="button" class="btn btn-info ml-2" onclick="document.getElementById('printModal').style.display='block'">Imprimir</button>
+    </footer>
+
+    <!-- Modal de Impressão -->
+    <div id="printModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background-color: rgba(0,0,0,0.5); z-index: 3000;">
+        <div style="background-color:#fff; width:300px; margin: 100px auto; padding:20px; border-radius:5px; border:1px solid #999;">
+            <h4>Imprimir Escala</h4>
+            <p>Selecione os cargos:</p>
+            <form action="/page/imprimir_escala" method="GET" target="_blank">
+                <input type="hidden" name="data" value="{{.Data}}">
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" name="cargos" value="Operador" id="chkOp" checked>
+                    <label class="form-check-label" for="chkOp">Operador</label>
+                </div>
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" name="cargos" value="Auxiliar" id="chkAux" checked>
+                    <label class="form-check-label" for="chkAux">Auxiliar</label>
+                </div>
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" name="cargos" value="Empacotador" id="chkEmp" checked>
+                    <label class="form-check-label" for="chkEmp">Empacotador</label>
+                </div>
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" name="cargos" value="Apoio" id="chkApo" checked>
+                    <label class="form-check-label" for="chkApo">Apoio</label>
+                </div>
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" name="cargos" value="Líder" id="chkLid" checked>
+                    <label class="form-check-label" for="chkLid">Líder</label>
+                </div>
+                <br>
+                <button type="submit" class="btn btn-primary" onclick="document.getElementById('printModal').style.display='none'">Gerar Impressão</button>
+                <button type="button" class="btn btn-secondary" onclick="document.getElementById('printModal').style.display='none'">Cancelar</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Menu Flutuante (Escondido) -->
+    <div id="menuStatus">
+        <a href="#" onclick="mudarStatus('Presente'); return false;" style="color: #28a745; font-weight: bold;">Presente</a>
+        <a href="#" onclick="mudarStatus('Falta'); return false;" style="color: #dc3545; font-weight: bold;">Falta</a>
+        <a href="#" onclick="mudarStatus('Folga'); return false;" style="color: #6c757d; font-weight: bold;">Folga</a>
+        <a href="#" onclick="mudarStatus('Outro'); return false;" style="color: #ffc107; font-weight: bold;">Outro</a>
+    </div>
+
+    <script>
+        var currentData = "";
+        var currentHora = "";
+        var currentId = "";
+        var currentCargo = "{{.SelectedCargo}}";
+
+        function abrirMenuStatus(e, data, hora, id) {
+            var menu = document.getElementById("menuStatus");
+            menu.style.display = "block";
+            menu.style.left = e.pageX + "px";
+            menu.style.top = e.pageY + "px";
+            currentData = data;
+            currentHora = hora;
+            currentId = id;
+            e.stopPropagation(); // Evita fechar imediatamente
+        }
+
+        function mudarStatus(status) {
+            window.location.href = "/action/atualizar_status?data=" + currentData + "&hora=" + currentHora + "&id=" + currentId + "&status=" + status + "&cargo=" + currentCargo;
+        }
+
+        function atualizarTarefa(input, data, hora, id, coluna) {
+            var valor = encodeURIComponent(input.value);
+            window.location.href = "/action/atualizar_tarefa?data=" + data + "&hora=" + hora + "&id=" + id + "&coluna=" + coluna + "&valor=" + valor + "&cargo=" + currentCargo;
+        }
+
+        document.onclick = function() {
+            document.getElementById("menuStatus").style.display = "none";
+        };
+    </script>
 </body>
 </html>
