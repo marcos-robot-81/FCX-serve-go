@@ -1,14 +1,19 @@
 package main
 
 import (
+	"embed"
 	"html/template"
 	"log"
 	"net/http"
 	"strings"
+	"time"
 
 	"fcx-box/database"
 	"fcx-box/handlers"
 )
+
+//go:embed templates css midias
+var content embed.FS
 
 func main() {
 	// 1. Inicializa Banco de Dados
@@ -46,7 +51,7 @@ func main() {
 			return s
 		},
 	}
-	tmpl := template.Must(template.New("").Funcs(funcMap).ParseGlob("templates/*.html"))
+	tmpl := template.Must(template.New("").Funcs(funcMap).ParseFS(content, "templates/*.html"))
 
 	// 3. Inicializa Handlers
 	app := &handlers.App{
@@ -80,10 +85,19 @@ func main() {
 	http.HandleFunc("/page/imprimir_escala", app.PageImprimirEscala)
 
 	// Servir arquivos estáticos (CSS)
-	http.Handle("/css/", http.StripPrefix("/css/", http.FileServer(http.Dir("./css"))))
-	http.Handle("/midias/", http.StripPrefix("/midias/", http.FileServer(http.Dir("./midias"))))
+	http.Handle("/css/", http.FileServer(http.FS(content)))
+	http.Handle("/midias/", http.FileServer(http.FS(content)))
 
 	// 5. Sobe o Servidor
 	log.Println("Servidor rodando na porta :8080...")
-	log.Fatal(http.ListenAndServe(":8080", nil))
+
+	// Configuração de servidor mais robusta com timeouts para uso em rede
+	srv := &http.Server{
+		Addr:         ":8080",
+		Handler:      nil, // Usa o DefaultServeMux definido acima
+		ReadTimeout:  15 * time.Second,
+		WriteTimeout: 15 * time.Second,
+		IdleTimeout:  60 * time.Second,
+	}
+	log.Fatal(srv.ListenAndServe())
 }

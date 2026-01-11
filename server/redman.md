@@ -39,5 +39,8 @@ Esta abordagem prova que é possível entregar valor de negócio e modernizaçã
 * **Frontend:** JSP (JavaServer Pages) - Escolhido pela compatibilidade e renderização server-side.
 * **Sistema Operacional:** Linux (Distribuição leve para ARM)
 
+
+codigo para compila: GOOS=linux GOARCH=arm GOARM=7 go build -o app main.go 
+
 ---
 *Desenvolvido por [Seu Nome] - Focado em Engenharia de Software sob Restrições.*
