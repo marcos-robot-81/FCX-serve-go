@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <title>Configurar Programa</title>
+    <link rel="stylesheet" href="/css/bootstrap-4.0.0-dist/css/bootstrap.min.css">
+    <style>header, nav, main, footer, section { display: block; }</style>
+</head>
+<body>
+    <main class="container mt-5">
+        <h2>Configurar Cargos</h2>
+        <p>Defina os cargos e produtos disponíveis no sistema.</p>
+
+        <div class="card mb-4">
+            <div class="card-header">Adicionar Novo Cargo</div>
+            <div class="card-body">
+                <form action="/action/adicionar_cargo" method="POST" class="form-inline">
+                    <input type="text" name="nome" class="form-control mr-2" placeholder="Nome do Cargo" required>
+                    <button type="submit" class="btn btn-success">Adicionar</button>
+                </form>
+            </div>
+        </div>
+
+        <h3>Cargos Existentes</h3>
+        <ul class="list-group">
+            {{range .Cargos}}
+            <li class="list-group-item d-flex justify-content-between align-items-center">
+                {{.}}
+                <form action="/action/remover_cargo" method="POST" onsubmit="return confirm('Tem certeza que deseja remover este cargo?');">
+                    <input type="hidden" name="nome" value="{{.}}">
+                    <button type="submit" class="btn btn-danger btn-sm">Remover</button>
+                </form>
+            </li>
+            {{end}}
+        </ul>
+
+        <hr>
+
+        <h2>Configurar Produtos</h2>
+        <div class="card mb-4">
+            <div class="card-header">Adicionar Novo Produto</div>
+            <div class="card-body">
+                <form action="/action/adicionar_produto" method="POST" class="form-inline">
+                    <input type="text" name="nome" class="form-control mr-2" placeholder="Nome do Produto (ex: Paninho)" required>
+                    <button type="submit" class="btn btn-success">Adicionar</button>
+                </form>
+            </div>
+        </div>
+
+        <h3>Produtos Existentes</h3>
+        <ul class="list-group">
+            {{range .Produtos}}
+            <li class="list-group-item d-flex justify-content-between align-items-center">
+                {{.}}
+                <form action="/action/remover_produto" method="POST" onsubmit="return confirm('Tem certeza que deseja remover este produto?');">
+                    <input type="hidden" name="nome" value="{{.}}">
+                    <button type="submit" class="btn btn-danger btn-sm">Remover</button>
+                </form>
+            </li>
+            {{end}}
+        </ul>
+
+        <div class="card mt-4">
+            <div class="card-header">Gerenciamento de Pessoal</div>
+            <div class="card-body">
+                <p>Acesse a área de gerenciamento para desativar ou reativar funcionários.</p>
+                <a href="/page/deletar_funcionario" class="btn btn-warning">Gerenciar Funcionários</a>
+            </div>
+        </div>
+
+        <br>
+        <div class="d-flex justify-content-between">
+            <a href="/page/home" class="btn btn-secondary">Voltar</a>
+            <a href="/action/logout_config" class="btn btn-outline-danger">Sair (Logout)</a>
+        </div>
+    </main>
+</body>
+</html>

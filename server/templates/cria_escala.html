@@ -186,9 +186,19 @@
     <div id="printModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background-color: rgba(0,0,0,0.5); z-index: 3000;">
         <div style="background-color:#fff; width:300px; margin: 100px auto; padding:20px; border-radius:5px; border:1px solid #999;">
             <h4>Imprimir Escala</h4>
-            <p>Selecione os cargos:</p>
             <form action="/page/imprimir_escala" method="GET" target="_blank">
                 <input type="hidden" name="data" value="{{.Data}}">
+                
+                <div class="form-group">
+                    <label>Formato:</label>
+                    <select name="format" class="form-control">
+                        <option value="html">Visualizar / Imprimir (PDF)</option>
+                        <option value="excel">Excel (XLS)</option>
+                        <option value="libre">LibreOffice (ODS)</option>
+                    </select>
+                </div>
+
+                <p>Selecione os cargos:</p>
                 <div class="form-check">
                     <input class="form-check-input" type="checkbox" name="cargos" value="Operador" id="chkOp" checked>
                     <label class="form-check-label" for="chkOp">Operador</label>

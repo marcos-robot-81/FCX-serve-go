@@ -1,14 +1,18 @@
 <!DOCTYPE html>
 <html lang="pt-br">
 <head>
-    <title>Deletar Funcionário</title>
+    <title>Gerenciar Funcionários</title>
     <link rel="stylesheet" href="/css/bootstrap-4.0.0-dist/css/bootstrap.min.css">
     <style>header, nav, main, footer, section { display: block; }</style>
 </head>
 <body>
     <main class="container mt-5">
-        <h2>Excluir Funcionário</h2>
+        <h2>Gerenciar Funcionários</h2>
         
+        <div class="mb-3 text-right">
+            <a href="/page/novo_funcionario" class="btn btn-success">+ Adicionar Novo Funcionário</a>
+        </div>
+
         <form method="GET" action="/page/deletar_funcionario">
         <table class="table table-bordered table-hover">
             <thead class="thead-light">
@@ -16,26 +20,51 @@
                     <th>ID</th>
                     <th>Nome</th>
                     <th>Cargo</th>
+                    <th>Status</th>
                     <th>Ação</th>
                 </tr>
                 <tr>
                     <th><input type="text" name="q_id" value="{{.QueryID}}" class="form-control form-control-sm" placeholder="Filtro ID"></th>
                     <th><input type="text" name="q_nome" value="{{.QueryNome}}" class="form-control form-control-sm" placeholder="Filtro Nome"></th>
                     <th><input type="text" name="q_cargo" value="{{.QueryCargo}}" class="form-control form-control-sm" placeholder="Filtro Cargo"></th>
+                    <th>
+                        <select name="q_status" class="form-control form-control-sm">
+                            <option value="all">Todos</option>
+                            <option value="1" {{if eq .QueryStatus "1"}}selected{{end}}>Ativo</option>
+                            <option value="2" {{if eq .QueryStatus "2"}}selected{{end}}>Férias</option>
+                            <option value="0" {{if eq .QueryStatus "0"}}selected{{end}}>Inativo</option>
+                        </select>
+                    </th>
                     <th><button type="submit" class="btn btn-primary btn-sm btn-block">Filtrar</button></th>
                 </tr>
             </thead>
             <tbody>
                 {{range .Funcionarios}}
-                <tr>
+                <tr class="{{if eq .Ativo 0}}table-danger{{else if eq .Ativo 2}}table-warning{{end}}">
                     <td>{{.ID}}</td>
                     <td>{{.Nome}}</td>
                     <td>{{.Cargo}}</td>
                     <td>
-                        <form action="/action/deletar_funcionario" method="POST" style="display:inline;" onsubmit="return confirm('Tem certeza que deseja excluir {{.Nome}}?');">
-                            <input type="hidden" name="id" value="{{.ID}}">
-                            <button type="submit" class="btn btn-danger btn-sm">Excluir</button>
-                        </form>
+                        {{if eq .Ativo 1}}
+                            <span class="badge badge-success">Ativo</span>
+                        {{else if eq .Ativo 2}}
+                            <span class="badge badge-warning">Férias</span>
+                        {{else}}
+                            <span class="badge badge-secondary">Inativo</span>
+                        {{end}}
+                    </td>
+                    <td>
+                        <!-- Botões de Ação -->
+                        {{if eq .Ativo 1}}
+                            <button type="button" class="btn btn-warning btn-sm" onclick="executarAcao('/action/status_funcionario', {{.ID}}, 2, 'Colocar {{.Nome}} em Férias?', false)">Férias</button>
+                            <button type="button" class="btn btn-secondary btn-sm" onclick="executarAcao('/action/status_funcionario', {{.ID}}, 0, 'Desativar {{.Nome}}?', false)">Desativar</button>
+                        {{else if eq .Ativo 2}}
+                            <button type="button" class="btn btn-success btn-sm" onclick="executarAcao('/action/status_funcionario', {{.ID}}, 1, 'Reativar {{.Nome}}?', false)">Ativar</button>
+                            <button type="button" class="btn btn-secondary btn-sm" onclick="executarAcao('/action/status_funcionario', {{.ID}}, 0, 'Desativar {{.Nome}}?', false)">Desativar</button>
+                        {{else}}
+                            <button type="button" class="btn btn-success btn-sm" onclick="executarAcao('/action/status_funcionario', {{.ID}}, 1, 'Reativar {{.Nome}}?', false)">Ativar</button>
+                        {{end}}
+                        <button type="button" class="btn btn-danger btn-sm ml-2" onclick="executarAcao('/action/excluir_funcionario', {{.ID}}, null, 'ATENÇÃO: Isso apagará DEFINITIVAMENTE {{.Nome}} e todo o histórico. Confirmar?', true)">Excluir</button>
                     </td>
                 </tr>
                 {{end}}
@@ -45,13 +74,41 @@
 
         <div class="pagination">
             {{if gt .PrevPage 0}}
-                <a href="/page/deletar_funcionario?page={{.PrevPage}}&q_id={{.QueryID}}&q_nome={{.QueryNome}}&q_cargo={{.QueryCargo}}" class="btn btn-outline-primary btn-sm">&laquo; Anterior</a>
+                <a href="/page/deletar_funcionario?page={{.PrevPage}}&q_id={{.QueryID}}&q_nome={{.QueryNome}}&q_cargo={{.QueryCargo}}&q_status={{.QueryStatus}}" class="btn btn-outline-primary btn-sm">&laquo; Anterior</a>
             {{end}}
             <span class="mx-2 align-self-center">Página {{.Page}}</span>
-            <a href="/page/deletar_funcionario?page={{.NextPage}}&q_id={{.QueryID}}&q_nome={{.QueryNome}}&q_cargo={{.QueryCargo}}" class="btn btn-outline-primary btn-sm">Próxima &raquo;</a>
+            <a href="/page/deletar_funcionario?page={{.NextPage}}&q_id={{.QueryID}}&q_nome={{.QueryNome}}&q_cargo={{.QueryCargo}}&q_status={{.QueryStatus}}" class="btn btn-outline-primary btn-sm">Próxima &raquo;</a>
         </div>
 
-        <br><a href="/page/home" class="btn btn-secondary">Voltar</a>
+        <!-- Formulário oculto para ações (evita aninhamento de forms) -->
+        <form id="formAcao" method="POST" style="display:none;">
+            <input type="hidden" name="id" id="idAcao">
+            <input type="hidden" name="status" id="statusAcao">
+            <input type="hidden" name="senha" id="senhaAcao">
+        </form>
+
+        <script>
+            function executarAcao(url, id, status, msg, isDelete) {
+                if (confirm(msg)) {
+                    if (isDelete) {
+                        // Segunda confirmação
+                        if (!confirm("CONFIRMAÇÃO FINAL: Esta ação é irreversível. Tem certeza absoluta?")) return;
+                        // Solicita senha
+                        var senha = prompt("Digite a senha de administrador para confirmar a exclusão:");
+                        if (senha === null || senha === "") return;
+                        document.getElementById('senhaAcao').value = senha;
+                    }
+
+                    var form = document.getElementById('formAcao');
+                    document.getElementById('idAcao').value = id;
+                    if (status !== null) document.getElementById('statusAcao').value = status;
+                    form.action = url;
+                    form.submit();
+                }
+            }
+        </script>
+
+        <br><a href="/page/configurar" class="btn btn-secondary">Voltar para Configurações</a>
     </main>
 </body>
 </html>

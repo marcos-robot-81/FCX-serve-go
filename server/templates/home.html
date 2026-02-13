@@ -19,104 +19,112 @@
             background-size: cover; /* Ignorado por navegadores muito antigos, mas melhora visual nos novos */
         }
 
-        /* Menu Lateral (Sidebar) */
-        #sidebar {
-            height: 100%;
-            width: 250px;
-            position: fixed;
-            z-index: 1;
-            top: 0;
-            left: -250px; /* Começa escondido */
-            background-color: #111;
-            overflow-x: hidden;
-            padding-top: 60px;
-            border-right: 1px solid #333;
-        }
-
-        /* Links do Menu */
-        #sidebar a {
-            padding: 10px 15px 10px 30px;
-            text-decoration: none;
-            font-size: 18px;
-            color: #818181;
-            display: block;
-            border-bottom: 1px solid #222;
-        }
-
-        #sidebar a:hover {
-            color: #f1f1f1;
-            background-color: #333;
-        }
-
-        /* Botão de fechar (X) */
-        #sidebar .closebtn {
-            position: absolute;
-            top: 0;
-            right: 25px;
-            font-size: 36px;
-            margin-left: 50px;
-            border-bottom: none;
-        }
-
         /* Conteúdo Principal */
         #main {
             padding: 20px;
             margin-left: 0;
         }
 
-        /* Botão de Abrir Menu */
-        .openbtn {
-            font-size: 20px;
-            cursor: pointer;
-            background-color: #111;
-            color: white;
-            padding: 10px 15px;
-            border: none;
-        }
-
         .texto-destaque {
             text-align: center;
-            margin-top: 100px;
+            margin-top: 40px;
+            margin-bottom: 40px;
             color: #ffffff;
             text-shadow: 2px 2px 4px #000000; /* Sombra para garantir leitura sobre qualquer imagem */
+        }
+
+        /* Cards do Menu */
+        .menu-card {
+            background-color: rgba(255, 255, 255, 0.9);
+            border-radius: 8px;
+            padding: 30px 15px;
+            text-align: center;
+            margin-bottom: 20px;
+            transition: transform 0.2s, background-color 0.2s;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            border: 1px solid #ddd;
+        }
+        .menu-card:hover {
+            transform: scale(1.03);
+            background-color: #fff;
+            text-decoration: none;
+            cursor: pointer;
+        }
+        .menu-card h4 {
+            color: #333;
+            margin-top: 15px;
+            font-size: 1.2rem;
+            font-weight: bold;
+        }
+        .menu-icon {
+            font-size: 48px;
+            color: #007bff;
+            line-height: 1;
+        }
+        a.card-link {
+            text-decoration: none;
+            color: inherit;
+            display: block;
+            height: 100%;
         }
     </style>
 </head>
 <body>
 
-    <!-- Menu Lateral -->
-    <nav id="sidebar">
-        <a href="javascript:void(0)" class="closebtn" onclick="fecharNav()">&times;</a>
-        <a href="/page/novo_funcionario">Adicionar Funcionário</a>
-        <a href="/page/nova_retirada">Registrar Retirada de Produto</a>
-        <a href="/page/lista_funcionarios">Listar Funcionários (Histórico)</a>
-        <a href="/page/cria_escala">Gerenciar Escala</a>
-        <a href="/page/deletar_funcionario">Deletar Funcionário</a>
-    </nav>
-
     <!-- Conteúdo Principal -->
-    <main id="main">
-        <button class="openbtn" onclick="abrirNav()">&#9776; Menu</button>
-        
-        <div class="container mt-4">
-            <div class="texto-destaque">
-                <h1>Sistema de Gerenciamento TV Box</h1>
-                <h2>Controle de Estoque e Escalas</h2>
+    <main id="main" class="container">
+        <div class="texto-destaque">
+            <h1>Sistema de Gerenciamento TV Box</h1>
+            <h2>Controle de Estoque e Escalas</h2>
+        </div>
+
+        <div class="row justify-content-center">
+            <!-- Card 2: Nova Retirada -->
+            <div class="col-md-4 col-sm-6 mb-4">
+                <a href="/page/nova_retirada" class="card-link">
+                    <div class="menu-card">
+                        <div class="menu-icon">&#128722;</div>
+                        <h4>Registrar Retirada</h4>
+                    </div>
+                </a>
+            </div>
+
+            <!-- Card 3: Listar Funcionários -->
+            <div class="col-md-4 col-sm-6 mb-4">
+                <a href="/page/lista_funcionarios" class="card-link">
+                    <div class="menu-card">
+                        <div class="menu-icon">&#128196;</div>
+                        <h4>Histórico & Lista</h4>
+                    </div>
+                </a>
+            </div>
+
+            <!-- Card 4: Escala -->
+            <div class="col-md-4 col-sm-6 mb-4">
+                <a href="/page/cria_escala" class="card-link">
+                    <div class="menu-card">
+                        <div class="menu-icon">&#128197;</div>
+                        <h4>Gerenciar Escala</h4>
+                    </div>
+                </a>
+            </div>
+
+            <!-- Card 6: Configurar -->
+            <div class="col-md-4 col-sm-6 mb-4">
+                <a href="/page/configurar" class="card-link">
+                    <div class="menu-card">
+                        <div class="menu-icon">&#9881;</div>
+                        <h4>Configurar Programa</h4>
+                    </div>
+                </a>
             </div>
         </div>
     </main>
 
-    <!-- JavaScript Puro (ES3/ES5) -->
-    <script type="text/javascript">
-        function abrirNav() {
-            document.getElementById("sidebar").style.left = "0";
-            document.getElementById("main").style.marginLeft = "250px";
-        }
-
-        function fecharNav() {
-            document.getElementById("sidebar").style.left = "-250px";
-            document.getElementById("main").style.marginLeft = "0";
-        }
-    </script>
 </body>
 </html>

@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <title>Login - Configuração</title>
+    <link rel="stylesheet" href="/css/bootstrap-4.0.0-dist/css/bootstrap.min.css">
+    <style>
+        body { display: flex; align-items: center; justify-content: center; height: 100vh; background-color: #f8f9fa; }
+        .login-box { width: 100%; max-width: 330px; padding: 15px; margin: auto; text-align: center; }
+    </style>
+</head>
+<body>
+    <main class="login-box">
+        <form action="/action/login_config" method="POST">
+            <h1 class="h3 mb-3 font-weight-normal">Acesso Restrito</h1>
+            <p>Digite a senha para acessar as configurações.</p>
+            
+            <div class="form-group">
+                <input type="password" name="senha" class="form-control" placeholder="Senha" required autofocus>
+            </div>
+            
+            <button class="btn btn-lg btn-primary btn-block" type="submit">Entrar</button>
+            <br>
+            <a href="/page/home" class="btn btn-secondary btn-block">Voltar</a>
+        </form>
+    </main>
+</body>
+</html>

@@ -2,12 +2,14 @@ package handlers
 
 import (
 	"database/sql"
+	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"html/template"
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"fcx-box/models" // <--- VERIFIQUE SEU go.mod
@@ -19,11 +21,59 @@ type App struct {
 	Tmpl *template.Template
 }
 
+// Helper para buscar cargos do banco
+func (app *App) GetCargos() []string {
+	rows, err := app.DB.Query("SELECT nome FROM cargos ORDER BY id")
+	if err != nil {
+		return []string{}
+	}
+	defer rows.Close()
+	var cargos []string
+	for rows.Next() {
+		var c string
+		rows.Scan(&c)
+		cargos = append(cargos, c)
+	}
+	return cargos
+}
+
+// Helper para buscar tipos de produtos
+func (app *App) GetTiposProdutos() []string {
+	rows, err := app.DB.Query("SELECT nome FROM tipos_produtos ORDER BY nome")
+	if err != nil {
+		return []string{"Paninho"}
+	}
+	defer rows.Close()
+	var tipos []string
+	for rows.Next() {
+		var t string
+		rows.Scan(&t)
+		tipos = append(tipos, t)
+	}
+	return tipos
+}
+
+// Helper para gerenciar senha
+func (app *App) GetSenha() string {
+	var senha string
+	err := app.DB.QueryRow("SELECT valor FROM configuracoes WHERE chave = 'senha_admin'").Scan(&senha)
+	if err != nil {
+		return "8080" // Fallback padrão
+	}
+	return senha
+}
+
+func (app *App) SetSenha(nova string) {
+	// Remove a senha anterior para evitar duplicatas caso a tabela não tenha PK definida corretamente
+	app.DB.Exec("DELETE FROM configuracoes WHERE chave = 'senha_admin'")
+	app.DB.Exec("INSERT INTO configuracoes (chave, valor) VALUES ('senha_admin', ?)", nova)
+}
+
 // --- API JSON ---
 
 func (app *App) ListarFuncionarios(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	rows, err := app.DB.Query("SELECT id, nome, cargo FROM funcionarios")
+	rows, err := app.DB.Query("SELECT id, nome, cargo FROM funcionarios WHERE ativo = 1")
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -92,39 +142,67 @@ func (app *App) PageMenu(w http.ResponseWriter, r *http.Request) {
 }
 
 func (app *App) PageNovoFuncionario(w http.ResponseWriter, r *http.Request) {
-	app.Tmpl.ExecuteTemplate(w, "add_funcionario.html", nil)
+	// Verifica autenticação (Protegido por senha)
+	if !app.isAuthenticated(w, r) {
+		http.Redirect(w, r, "/page/configurar", http.StatusSeeOther)
+		return
+	}
+
+	cargos := app.GetCargos()
+	app.Tmpl.ExecuteTemplate(w, "add_funcionario.html", cargos)
 }
 
 func (app *App) ActionSalvarFuncionario(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPost {
-		idStr := r.FormValue("id")
+		if !app.isAuthenticated(w, r) {
+			http.Redirect(w, r, "/page/configurar", http.StatusSeeOther)
+			return
+		}
+
+		idStr := strings.TrimSpace(r.FormValue("id"))
 		nome := r.FormValue("nome")
 		cargo := r.FormValue("cargo")
 
 		if idStr != "" {
-			id, _ := strconv.Atoi(idStr)
+			id, err := strconv.Atoi(idStr)
+			if err != nil {
+				alertAndBack(w, "ID inválido: deve ser numérico")
+				return
+			}
 			// Verifica se o ID já existe
 			var exists int
-			err := app.DB.QueryRow("SELECT 1 FROM funcionarios WHERE id = ?", id).Scan(&exists)
+			err = app.DB.QueryRow("SELECT 1 FROM funcionarios WHERE id = ?", id).Scan(&exists)
 			if err == nil {
 				// ID já existe: exibe alerta e volta para a página anterior
-				w.Header().Set("Content-Type", "text/html; charset=utf-8")
-				fmt.Fprintf(w, "<script>alert('O ID %d já está ocupado!'); window.history.back();</script>", id)
+				alertAndBack(w, fmt.Sprintf("O ID %d já está ocupado!", id))
 				return
 			}
 			// Insere com ID manual
-			app.DB.Exec("INSERT INTO funcionarios (id, nome, cargo) VALUES (?, ?, ?)", id, nome, cargo)
+			if _, err := app.DB.Exec("INSERT INTO funcionarios (id, nome, cargo) VALUES (?, ?, ?)", id, nome, cargo); err != nil {
+				log.Printf("Erro ao salvar funcionário (ID manual): %v", err)
+				alertAndBack(w, "Erro ao salvar funcionário. Tente novamente.")
+				return
+			}
 		} else {
 			// Insere sem ID (o banco gera automaticamente)
-			app.DB.Exec("INSERT INTO funcionarios (nome, cargo) VALUES (?, ?)", nome, cargo)
+			if _, err := app.DB.Exec("INSERT INTO funcionarios (nome, cargo) VALUES (?, ?)", nome, cargo); err != nil {
+				log.Printf("Erro ao salvar funcionário (Auto ID): %v", err)
+				alertAndBack(w, "Erro ao salvar funcionário. Tente novamente.")
+				return
+			}
 		}
 
-		http.Redirect(w, r, "/page/menu", http.StatusSeeOther)
+		http.Redirect(w, r, "/page/deletar_funcionario", http.StatusSeeOther)
 	}
 }
 
+type RetiradaViewData struct {
+	Funcionarios []models.Funcionario
+	Produtos     []string
+}
+
 func (app *App) PageNovaRetirada(w http.ResponseWriter, r *http.Request) {
-	rows, _ := app.DB.Query("SELECT id, nome, cargo FROM funcionarios")
+	rows, _ := app.DB.Query("SELECT id, nome, cargo FROM funcionarios WHERE ativo = 1")
 	defer rows.Close()
 	var lista []models.Funcionario
 	for rows.Next() {
@@ -132,14 +210,41 @@ func (app *App) PageNovaRetirada(w http.ResponseWriter, r *http.Request) {
 		rows.Scan(&f.ID, &f.Nome, &f.Cargo)
 		lista = append(lista, f)
 	}
-	app.Tmpl.ExecuteTemplate(w, "retirada.html", lista)
+
+	produtos := app.GetTiposProdutos()
+
+	data := RetiradaViewData{
+		Funcionarios: lista,
+		Produtos:     produtos,
+	}
+	app.Tmpl.ExecuteTemplate(w, "retirada.html", data)
 }
 
 func (app *App) ActionSalvarRetirada(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPost {
-		funcID, _ := strconv.Atoi(r.FormValue("funcionario_id"))
+		funcID, err := strconv.Atoi(strings.TrimSpace(r.FormValue("funcionario_id")))
+		if err != nil {
+			alertAndBack(w, "ID do funcionário inválido")
+			return
+		}
 		tipo := r.FormValue("tipo")
-		qtd, _ := strconv.Atoi(r.FormValue("quantidade"))
+		qtd, err := strconv.Atoi(strings.TrimSpace(r.FormValue("quantidade")))
+		if err != nil {
+			alertAndBack(w, "Quantidade inválida")
+			return
+		}
+
+		// Verifica se o funcionário está ativo
+		var ativo int
+		err = app.DB.QueryRow("SELECT ativo FROM funcionarios WHERE id = ?", funcID).Scan(&ativo)
+		if err != nil {
+			alertAndBack(w, "Funcionário não encontrado")
+			return
+		}
+		if ativo == 0 {
+			alertAndBack(w, "Funcionário desativado! Não é possível realizar retiradas.")
+			return
+		}
 
 		agora := time.Now()
 		data := agora.Format("2006-01-02")
@@ -147,24 +252,50 @@ func (app *App) ActionSalvarRetirada(w http.ResponseWriter, r *http.Request) {
 
 		if _, err := app.DB.Exec("INSERT INTO produtos (data, hora, tipo, quantidade, funcionario_id) VALUES (?, ?, ?, ?, ?)", data, hora, tipo, qtd, funcID); err != nil {
 			log.Printf("Erro ao salvar produto: %v", err)
-			http.Error(w, "Erro ao salvar produto", http.StatusInternalServerError)
+			alertAndBack(w, "Erro ao salvar produto")
 			return
 		}
 
 		nomeTabelaDia := fmt.Sprintf("retiradas_%s", agora.Format("20060102"))
-		app.DB.Exec(fmt.Sprintf(`create table if not exists %s (id integer not null primary key, data text, hora text, tipo text, quantidade integer, funcionario_id integer);`, nomeTabelaDia))
+		if _, err := app.DB.Exec(fmt.Sprintf(`create table if not exists %s (id integer not null primary key, data text, hora text, tipo text, quantidade integer, funcionario_id integer);`, nomeTabelaDia)); err != nil {
+			log.Printf("Erro ao criar tabela diária: %v", err)
+		}
 		if _, err := app.DB.Exec(fmt.Sprintf("INSERT INTO %s (data, hora, tipo, quantidade, funcionario_id) VALUES (?, ?, ?, ?, ?)", nomeTabelaDia), data, hora, tipo, qtd, funcID); err != nil {
 			log.Printf("Erro ao salvar na tabela do dia: %v", err)
 		}
 
-		http.Redirect(w, r, "/page/menu", http.StatusSeeOther)
+		http.Redirect(w, r, "/page/home", http.StatusSeeOther)
 	}
 }
 
+// Estrutura auxiliar para a view de gerenciamento (inclui status)
+type FuncionarioView struct {
+	models.Funcionario
+	Ativo int
+}
+
+type DeleteFuncData struct {
+	Funcionarios []FuncionarioView
+	Page         int
+	PrevPage     int
+	NextPage     int
+	QueryID      string
+	QueryNome    string
+	QueryCargo   string
+	QueryStatus  string
+}
+
 func (app *App) PageDeletarFuncionario(w http.ResponseWriter, r *http.Request) {
+	// Verifica autenticação (Protegido por senha)
+	if !app.isAuthenticated(w, r) {
+		http.Redirect(w, r, "/page/configurar", http.StatusSeeOther)
+		return
+	}
+
 	qID := r.URL.Query().Get("q_id")
 	qNome := r.URL.Query().Get("q_nome")
 	qCargo := r.URL.Query().Get("q_cargo")
+	qStatus := r.URL.Query().Get("q_status")
 
 	// Paginação
 	pageStr := r.URL.Query().Get("page")
@@ -175,7 +306,8 @@ func (app *App) PageDeletarFuncionario(w http.ResponseWriter, r *http.Request) {
 	limit := 10
 	offset := (page - 1) * limit
 
-	sqlQuery := "SELECT id, nome, cargo FROM funcionarios WHERE 1=1"
+	// Busca todos (ativos e inativos) para permitir reativação
+	sqlQuery := "SELECT id, nome, cargo, ativo FROM funcionarios WHERE 1=1"
 	var args []interface{}
 
 	if qID != "" {
@@ -190,6 +322,10 @@ func (app *App) PageDeletarFuncionario(w http.ResponseWriter, r *http.Request) {
 		sqlQuery += " AND cargo LIKE ?"
 		args = append(args, "%"+qCargo+"%")
 	}
+	if qStatus != "" && qStatus != "all" {
+		sqlQuery += " AND ativo = ?"
+		args = append(args, qStatus)
+	}
 
 	sqlQuery += " LIMIT ? OFFSET ?"
 	args = append(args, limit, offset)
@@ -201,14 +337,14 @@ func (app *App) PageDeletarFuncionario(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 
-	var lista []models.Funcionario
+	var lista []FuncionarioView
 	for rows.Next() {
-		var f models.Funcionario
-		rows.Scan(&f.ID, &f.Nome, &f.Cargo)
+		var f FuncionarioView
+		rows.Scan(&f.ID, &f.Nome, &f.Cargo, &f.Ativo)
 		lista = append(lista, f)
 	}
 
-	data := ListaFuncData{
+	data := DeleteFuncData{
 		Funcionarios: lista,
 		Page:         page,
 		PrevPage:     page - 1,
@@ -216,45 +352,82 @@ func (app *App) PageDeletarFuncionario(w http.ResponseWriter, r *http.Request) {
 		QueryID:      qID,
 		QueryNome:    qNome,
 		QueryCargo:   qCargo,
+		QueryStatus:  qStatus,
 	}
 	app.Tmpl.ExecuteTemplate(w, "delete_funcionario.html", data)
 }
 
-func (app *App) ActionDeletarFuncionario(w http.ResponseWriter, r *http.Request) {
+func (app *App) ActionStatusFuncionario(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPost {
+		if !app.isAuthenticated(w, r) {
+			http.Redirect(w, r, "/page/configurar", http.StatusSeeOther)
+			return
+		}
+
+		id, err := strconv.Atoi(r.FormValue("id"))
+		status, errStatus := strconv.Atoi(r.FormValue("status")) // 1=Ativo, 0=Desativado, 2=Férias
+		if err != nil {
+			alertAndBack(w, "ID inválido")
+			return
+		}
+		if errStatus != nil {
+			alertAndBack(w, "Status inválido")
+			return
+		}
+
+		// Atualiza o status (Soft Delete / Férias / Reativar)
+		app.DB.Exec("UPDATE funcionarios SET ativo = ? WHERE id = ?", status, id)
+		http.Redirect(w, r, "/page/deletar_funcionario", http.StatusSeeOther)
+	}
+}
+
+func (app *App) ActionExcluirFuncionario(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost {
+		if !app.isAuthenticated(w, r) {
+			http.Redirect(w, r, "/page/configurar", http.StatusSeeOther)
+			return
+		}
+
+		// Verifica senha enviada no form (Segurança extra para exclusão definitiva)
+		senha := r.FormValue("senha")
+		if senha != app.GetSenha() {
+			alertAndBack(w, "Senha incorreta! Ação cancelada.")
+			return
+		}
+
 		id, err := strconv.Atoi(r.FormValue("id"))
 		if err != nil {
-			http.Error(w, "ID inválido", http.StatusBadRequest)
+			alertAndBack(w, "ID inválido")
 			return
 		}
 
-		// Inicia transação para garantir integridade (apaga tudo ou nada)
+		// HARD DELETE: Apaga do banco de dados e remove histórico
 		tx, err := app.DB.Begin()
 		if err != nil {
-			http.Error(w, "Erro interno no banco", http.StatusInternalServerError)
+			alertAndBack(w, "Erro interno no banco")
 			return
 		}
-		defer tx.Rollback() // Garante que a transação seja cancelada se houver erro ou panic
+		defer tx.Rollback()
 
-		// 1. Primeiro deleta o histórico (produtos) desse funcionário
+		// 1. Deleta histórico de produtos
 		if _, err := tx.Exec("DELETE FROM produtos WHERE funcionario_id = ?", id); err != nil {
 			log.Printf("Erro ao deletar produtos do funcionário %d: %v", id, err)
-			http.Error(w, "Erro ao limpar histórico do funcionário", http.StatusInternalServerError)
+			alertAndBack(w, "Erro ao limpar histórico")
 			return
 		}
 
-		// 2. Depois deleta o funcionário
+		// 2. Deleta o funcionário
 		if _, err := tx.Exec("DELETE FROM funcionarios WHERE id = ?", id); err != nil {
 			log.Printf("Erro ao deletar funcionário %d: %v", id, err)
-			http.Error(w, "Erro ao deletar funcionário", http.StatusInternalServerError)
+			alertAndBack(w, "Erro ao deletar funcionário")
 			return
 		}
 
 		if err := tx.Commit(); err != nil {
-			log.Printf("Erro ao confirmar exclusão: %v", err)
-			http.Error(w, "Erro ao finalizar exclusão", http.StatusInternalServerError)
+			alertAndBack(w, "Erro ao confirmar exclusão")
 			return
 		}
+
 		http.Redirect(w, r, "/page/deletar_funcionario", http.StatusSeeOther)
 	}
 }
@@ -278,17 +451,20 @@ func (app *App) PageEditarFuncionario(w http.ResponseWriter, r *http.Request) {
 func (app *App) ActionAtualizarFuncionario(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPost {
 		oldID, _ := strconv.Atoi(r.FormValue("old_id"))
-		newID, _ := strconv.Atoi(r.FormValue("id"))
+		newID, err := strconv.Atoi(strings.TrimSpace(r.FormValue("id")))
+		if err != nil {
+			alertAndBack(w, "ID inválido")
+			return
+		}
 		nome := r.FormValue("nome")
 		cargo := r.FormValue("cargo")
 
 		// Se o ID mudou, verifica se o novo ID já existe
 		if oldID != newID {
 			var exists int
-			err := app.DB.QueryRow("SELECT 1 FROM funcionarios WHERE id = ?", newID).Scan(&exists)
+			err = app.DB.QueryRow("SELECT 1 FROM funcionarios WHERE id = ?", newID).Scan(&exists)
 			if err == nil {
-				w.Header().Set("Content-Type", "text/html; charset=utf-8")
-				fmt.Fprintf(w, "<script>alert('O ID %d já está ocupado!'); window.history.back();</script>", newID)
+				alertAndBack(w, fmt.Sprintf("O ID %d já está ocupado!", newID))
 				return
 			}
 			// Atualiza produtos para o novo ID (Requisito: "todos os produtos com o id do funcionario tambem devem ser mudados")
@@ -436,10 +612,10 @@ func (app *App) PageCriaEscala(w http.ResponseWriter, r *http.Request) {
 
 	if cargoFilter != "" {
 		// Se tem filtro, busca só daquele cargo
-		rows, err = app.DB.Query("SELECT id, nome, cargo FROM funcionarios WHERE cargo = ? ORDER BY nome", cargoFilter)
+		rows, err = app.DB.Query("SELECT id, nome, cargo FROM funcionarios WHERE cargo = ? AND ativo = 1 ORDER BY nome", cargoFilter)
 	} else {
 		// Se não tem, busca todos
-		rows, err = app.DB.Query("SELECT id, nome, cargo FROM funcionarios ORDER BY nome")
+		rows, err = app.DB.Query("SELECT id, nome, cargo FROM funcionarios WHERE ativo = 1 ORDER BY nome")
 	}
 
 	if err != nil {
@@ -501,7 +677,7 @@ func (app *App) PageCriaEscala(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 3. Organiza os dados para as 5 tabelas (Cargo -> 24 Horas)
-	cargos := []string{"Operador", "Auxiliar", "Empacotador", "Apoio", "Líder"}
+	cargos := app.GetCargos()
 	tabelas := make(map[string][]models.Quadro)
 
 	for _, cargo := range cargos {
@@ -552,21 +728,21 @@ func (app *App) PageImprimirEscala(w http.ResponseWriter, r *http.Request) {
 	}
 	dia.Data = data
 
+	cargosDB := app.GetCargos()
+
 	// Se nenhum cargo foi selecionado, seleciona todos por padrão
 	if len(cargosSelected) == 0 {
-		cargosSelected = []string{"Operador", "Auxiliar", "Empacotador", "Apoio", "Líder"}
+		cargosSelected = cargosDB
 	}
 
 	tabelas := make(map[string][]models.Quadro)
 	var cargosOrdenados []string
-	ordemPadrao := []string{"Operador", "Auxiliar", "Empacotador", "Apoio", "Líder"}
-
 	selMap := make(map[string]bool)
 	for _, c := range cargosSelected {
 		selMap[c] = true
 	}
 
-	for _, cargo := range ordemPadrao {
+	for _, cargo := range cargosDB {
 		if selMap[cargo] {
 			cargosOrdenados = append(cargosOrdenados, cargo)
 			var horas []models.Quadro
@@ -593,6 +769,87 @@ func (app *App) PageImprimirEscala(w http.ResponseWriter, r *http.Request) {
 		Data:        data,
 		Tabelas:     tabelas,
 		CargosOrdem: cargosOrdenados,
+	}
+
+	// Verifica se foi solicitado exportação
+	format := r.URL.Query().Get("format")
+	if format == "excel" || format == "libre" {
+		filename := fmt.Sprintf("escala_%s", strings.ReplaceAll(data, "-", ""))
+
+		if format == "excel" {
+			// Gera XML Spreadsheet 2003 (Compatível com Excel)
+			w.Header().Set("Content-Type", "application/vnd.ms-excel")
+			w.Header().Set("Content-Disposition", fmt.Sprintf("attachment;filename=%s.xls", filename))
+
+			w.Write([]byte(`<?xml version="1.0"?><?mso-application progid="Excel.Sheet"?><Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"><Worksheet ss:Name="Escala"><Table>`))
+			fmt.Fprintf(w, `<Row><Cell><Data ss:Type="String">Escala do Dia: %s</Data></Cell></Row>`, data)
+			w.Write([]byte(`<Row></Row>`))
+
+			for _, cargo := range cargosOrdenados {
+				fmt.Fprintf(w, `<Row><Cell><Data ss:Type="String">Cargo: %s</Data></Cell></Row>`, escapeXML(cargo))
+				if cargo == "Operador" {
+					w.Write([]byte(`<Row><Cell><Data ss:Type="String">Hora</Data></Cell><Cell><Data ss:Type="String">Funcionário</Data></Cell><Cell><Data ss:Type="String">Caixa 1</Data></Cell><Cell><Data ss:Type="String">Caixa 2</Data></Cell><Cell><Data ss:Type="String">Extra</Data></Cell></Row>`))
+				} else {
+					w.Write([]byte(`<Row><Cell><Data ss:Type="String">Hora</Data></Cell><Cell><Data ss:Type="String">Funcionário</Data></Cell><Cell><Data ss:Type="String">Tarefa 1</Data></Cell><Cell><Data ss:Type="String">Tarefa 2</Data></Cell><Cell><Data ss:Type="String">Tarefa 3</Data></Cell></Row>`))
+				}
+
+				horas := tabelas[cargo]
+				for i, quadro := range horas {
+					h := i + 1
+					for _, p := range quadro.Pessoas {
+						t1, t2, t3 := "", "", ""
+						if cargo == "Operador" {
+							t1, t2, t3 = p.Caixa1, p.Caixa2, p.Caixa3
+						} else {
+							t1, t2, t3 = p.Tarefa1, p.Tarefa2, p.Tarefa3
+						}
+						fmt.Fprintf(w, `<Row><Cell><Data ss:Type="Number">%d</Data></Cell><Cell><Data ss:Type="String">%s</Data></Cell><Cell><Data ss:Type="String">%s</Data></Cell><Cell><Data ss:Type="String">%s</Data></Cell><Cell><Data ss:Type="String">%s</Data></Cell></Row>`,
+							h, escapeXML(p.NomeDoFuncionario), escapeXML(t1), escapeXML(t2), escapeXML(t3))
+					}
+				}
+				w.Write([]byte(`<Row></Row>`))
+			}
+			w.Write([]byte(`</Table></Worksheet></Workbook>`))
+
+		} else {
+			// LibreOffice (ODS)
+			w.Header().Set("Content-Type", "application/vnd.oasis.opendocument.spreadsheet")
+			w.Header().Set("Content-Disposition", fmt.Sprintf("attachment;filename=%s.fods", filename))
+
+			w.Write([]byte(`<?xml version="1.0" encoding="UTF-8"?><office:document xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" office:mimetype="application/vnd.oasis.opendocument.spreadsheet"><office:body><office:spreadsheet><table:table table:name="Escala">`))
+
+			// Title Row
+			fmt.Fprintf(w, `<table:table-row><table:table-cell office:value-type="string"><text:p>Escala do Dia: %s</text:p></table:table-cell></table:table-row>`, data)
+			w.Write([]byte(`<table:table-row></table:table-row>`))
+
+			for _, cargo := range cargosOrdenados {
+				fmt.Fprintf(w, `<table:table-row><table:table-cell office:value-type="string"><text:p>Cargo: %s</text:p></table:table-cell></table:table-row>`, escapeXML(cargo))
+
+				if cargo == "Operador" {
+					w.Write([]byte(`<table:table-row><table:table-cell office:value-type="string"><text:p>Hora</text:p></table:table-cell><table:table-cell office:value-type="string"><text:p>Funcionário</text:p></table:table-cell><table:table-cell office:value-type="string"><text:p>Caixa 1</text:p></table:table-cell><table:table-cell office:value-type="string"><text:p>Caixa 2</text:p></table:table-cell><table:table-cell office:value-type="string"><text:p>Extra</text:p></table:table-cell></table:table-row>`))
+				} else {
+					w.Write([]byte(`<table:table-row><table:table-cell office:value-type="string"><text:p>Hora</text:p></table:table-cell><table:table-cell office:value-type="string"><text:p>Funcionário</text:p></table:table-cell><table:table-cell office:value-type="string"><text:p>Tarefa 1</text:p></table:table-cell><table:table-cell office:value-type="string"><text:p>Tarefa 2</text:p></table:table-cell><table:table-cell office:value-type="string"><text:p>Tarefa 3</text:p></table:table-cell></table:table-row>`))
+				}
+
+				horas := tabelas[cargo]
+				for i, quadro := range horas {
+					h := i + 1
+					for _, p := range quadro.Pessoas {
+						t1, t2, t3 := "", "", ""
+						if cargo == "Operador" {
+							t1, t2, t3 = p.Caixa1, p.Caixa2, p.Caixa3
+						} else {
+							t1, t2, t3 = p.Tarefa1, p.Tarefa2, p.Tarefa3
+						}
+						fmt.Fprintf(w, `<table:table-row><table:table-cell office:value-type="float" office:value="%d"><text:p>%d</text:p></table:table-cell><table:table-cell office:value-type="string"><text:p>%s</text:p></table:table-cell><table:table-cell office:value-type="string"><text:p>%s</text:p></table:table-cell><table:table-cell office:value-type="string"><text:p>%s</text:p></table:table-cell><table:table-cell office:value-type="string"><text:p>%s</text:p></table:table-cell></table:table-row>`,
+							h, h, escapeXML(p.NomeDoFuncionario), escapeXML(t1), escapeXML(t2), escapeXML(t3))
+					}
+				}
+				w.Write([]byte(`<table:table-row></table:table-row>`))
+			}
+			w.Write([]byte(`</table:table></office:spreadsheet></office:body></office:document>`))
+		}
+		return
 	}
 
 	app.Tmpl.ExecuteTemplate(w, "imprimir_escala.html", dataView)
@@ -930,14 +1187,18 @@ func (app *App) PageListarFuncionarios(w http.ResponseWriter, r *http.Request) {
 }
 
 type HistoricoData struct {
-	ID           int
-	Nome         string
-	DataInicio   string
-	DataFim      string
-	Produtos     []models.Produto
-	Soma         int
-	Media        float64
-	MediaPorHora float64
+	ID            int
+	Nome          string
+	DataInicio    string
+	DataFim       string
+	HoraInicio    string
+	HoraFim       string
+	ProdutoFilter string
+	ListaProdutos []string
+	Produtos      []models.Produto
+	Soma          int
+	Media         float64
+	MediaPorHora  float64
 }
 
 func (app *App) PageHistoricoFuncionario(w http.ResponseWriter, r *http.Request) {
@@ -945,6 +1206,11 @@ func (app *App) PageHistoricoFuncionario(w http.ResponseWriter, r *http.Request)
 	id, _ := strconv.Atoi(idStr)
 	dataInicio := r.URL.Query().Get("data_inicio")
 	dataFim := r.URL.Query().Get("data_fim")
+	horaInicio := r.URL.Query().Get("hora_inicio")
+	horaFim := r.URL.Query().Get("hora_fim")
+	produtoFilter := r.URL.Query().Get("produto")
+	export := r.URL.Query().Get("export")
+	format := r.URL.Query().Get("format")
 
 	if dataInicio == "" {
 		dataInicio = time.Now().Format("2006-01-02")
@@ -957,7 +1223,25 @@ func (app *App) PageHistoricoFuncionario(w http.ResponseWriter, r *http.Request)
 	var nome string
 	app.DB.QueryRow("SELECT nome FROM funcionarios WHERE id = ?", id).Scan(&nome)
 
-	rows, err := app.DB.Query("SELECT id, data, hora, tipo, quantidade, funcionario_id FROM produtos WHERE funcionario_id = ? AND data >= ? AND data <= ? ORDER BY data DESC, hora DESC", id, dataInicio, dataFim)
+	// Construção da Query com filtros opcionais de hora
+	sqlQuery := "SELECT id, data, hora, tipo, quantidade, funcionario_id FROM produtos WHERE funcionario_id = ? AND data >= ? AND data <= ?"
+	args := []interface{}{id, dataInicio, dataFim}
+
+	if horaInicio != "" {
+		sqlQuery += " AND hora >= ?"
+		args = append(args, horaInicio)
+	}
+	if horaFim != "" {
+		sqlQuery += " AND hora <= ?"
+		args = append(args, horaFim)
+	}
+	if produtoFilter != "" {
+		sqlQuery += " AND tipo = ?"
+		args = append(args, produtoFilter)
+	}
+	sqlQuery += " ORDER BY data DESC, hora DESC"
+
+	rows, err := app.DB.Query(sqlQuery, args...)
 	if err != nil {
 		http.Error(w, "Erro ao buscar histórico: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -980,6 +1264,74 @@ func (app *App) PageHistoricoFuncionario(w http.ResponseWriter, r *http.Request)
 		}
 	}
 
+	// Exportação para CSV
+	if export == "true" {
+		filename := fmt.Sprintf("historico_%s_%s", strings.ReplaceAll(nome, " ", "_"), time.Now().Format("20060102"))
+
+		if format == "excel" {
+			// Gera XML Spreadsheet 2003 (Compatível com Excel)
+			w.Header().Set("Content-Type", "application/vnd.ms-excel")
+			w.Header().Set("Content-Disposition", fmt.Sprintf("attachment;filename=%s.xls", filename))
+
+			w.Write([]byte(`<?xml version="1.0"?><?mso-application progid="Excel.Sheet"?><Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"><Worksheet ss:Name="Historico"><Table>`))
+
+			// Cabeçalho
+			w.Write([]byte(`<Row><Cell><Data ss:Type="String">ID</Data></Cell><Cell><Data ss:Type="String">Data</Data></Cell><Cell><Data ss:Type="String">Hora</Data></Cell><Cell><Data ss:Type="String">Produto</Data></Cell><Cell><Data ss:Type="String">Quantidade</Data></Cell><Cell><Data ss:Type="String">Funcionário</Data></Cell></Row>`))
+
+			// Dados
+			for _, p := range lista {
+				fmt.Fprintf(w, `<Row><Cell><Data ss:Type="Number">%d</Data></Cell><Cell><Data ss:Type="String">%s</Data></Cell><Cell><Data ss:Type="String">%s</Data></Cell><Cell><Data ss:Type="String">%s</Data></Cell><Cell><Data ss:Type="Number">%d</Data></Cell><Cell><Data ss:Type="String">%s</Data></Cell></Row>`,
+					p.ID, p.Data, p.Hora, escapeXML(p.Tipo), p.Quantidade, escapeXML(nome))
+			}
+
+			w.Write([]byte(`</Table></Worksheet></Workbook>`))
+			return
+
+		} else if format == "libre" {
+			// Gera Flat ODS (Compatível com LibreOffice)
+			w.Header().Set("Content-Type", "application/vnd.oasis.opendocument.spreadsheet")
+			w.Header().Set("Content-Disposition", fmt.Sprintf("attachment;filename=%s.fods", filename))
+
+			w.Write([]byte(`<?xml version="1.0" encoding="UTF-8"?><office:document xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" office:mimetype="application/vnd.oasis.opendocument.spreadsheet"><office:body><office:spreadsheet><table:table table:name="Historico">`))
+
+			// Cabeçalho
+			w.Write([]byte(`<table:table-row><table:table-cell office:value-type="string"><text:p>ID</text:p></table:table-cell><table:table-cell office:value-type="string"><text:p>Data</text:p></table:table-cell><table:table-cell office:value-type="string"><text:p>Hora</text:p></table:table-cell><table:table-cell office:value-type="string"><text:p>Produto</text:p></table:table-cell><table:table-cell office:value-type="string"><text:p>Quantidade</text:p></table:table-cell><table:table-cell office:value-type="string"><text:p>Funcionário</text:p></table:table-cell></table:table-row>`))
+
+			// Dados
+			for _, p := range lista {
+				fmt.Fprintf(w, `<table:table-row><table:table-cell office:value-type="float" office:value="%d"><text:p>%d</text:p></table:table-cell><table:table-cell office:value-type="string"><text:p>%s</text:p></table:table-cell><table:table-cell office:value-type="string"><text:p>%s</text:p></table:table-cell><table:table-cell office:value-type="string"><text:p>%s</text:p></table:table-cell><table:table-cell office:value-type="float" office:value="%d"><text:p>%d</text:p></table:table-cell><table:table-cell office:value-type="string"><text:p>%s</text:p></table:table-cell></table:table-row>`,
+					p.ID, p.ID, p.Data, p.Hora, escapeXML(p.Tipo), p.Quantidade, p.Quantidade, escapeXML(nome))
+			}
+
+			w.Write([]byte(`</table:table></office:spreadsheet></office:body></office:document>`))
+			return
+
+		} else {
+			// CSV (Padrão)
+			w.Header().Set("Content-Type", "text/csv")
+			w.Header().Set("Content-Disposition", fmt.Sprintf("attachment;filename=%s.csv", filename))
+
+			writer := csv.NewWriter(w)
+			defer writer.Flush()
+
+			// BOM para compatibilidade com Excel (UTF-8)
+			w.Write([]byte{0xEF, 0xBB, 0xBF})
+
+			writer.Write([]string{"ID", "Data", "Hora", "Tipo", "Quantidade", "Funcionário"})
+			for _, p := range lista {
+				writer.Write([]string{
+					strconv.Itoa(p.ID),
+					p.Data,
+					p.Hora,
+					p.Tipo,
+					strconv.Itoa(p.Quantidade),
+					nome,
+				})
+			}
+			return
+		}
+	}
+
 	var media float64
 	if len(lista) > 0 {
 		media = float64(soma) / float64(len(lista))
@@ -990,14 +1342,206 @@ func (app *App) PageHistoricoFuncionario(w http.ResponseWriter, r *http.Request)
 	}
 
 	data := HistoricoData{
-		ID:           id,
-		Nome:         nome,
-		DataInicio:   dataInicio,
-		DataFim:      dataFim,
-		Produtos:     lista,
-		Soma:         soma,
-		Media:        media,
-		MediaPorHora: mediaPorHora,
+		ID:            id,
+		Nome:          nome,
+		DataInicio:    dataInicio,
+		DataFim:       dataFim,
+		HoraInicio:    horaInicio,
+		HoraFim:       horaFim,
+		ProdutoFilter: produtoFilter,
+		ListaProdutos: app.GetTiposProdutos(),
+		Produtos:      lista,
+		Soma:          soma,
+		Media:         media,
+		MediaPorHora:  mediaPorHora,
 	}
 	app.Tmpl.ExecuteTemplate(w, "historico_funcionario.html", data)
+}
+
+func escapeXML(s string) string {
+	s = strings.ReplaceAll(s, "&", "&amp;")
+	s = strings.ReplaceAll(s, "<", "&lt;")
+	s = strings.ReplaceAll(s, ">", "&gt;")
+	s = strings.ReplaceAll(s, "\"", "&quot;")
+	s = strings.ReplaceAll(s, "'", "&apos;")
+	return s
+}
+
+// Helper para exibir alerta e voltar
+func alertAndBack(w http.ResponseWriter, msg string) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	fmt.Fprintf(w, "<script>alert('%s'); window.history.back();</script>", msg)
+}
+
+// --- CONFIGURAÇÃO ---
+
+// Helper interno para verificar autenticação
+func (app *App) isAuthenticated(w http.ResponseWriter, r *http.Request) bool {
+	cookie, err := r.Cookie("admin_auth")
+	if err != nil || cookie.Value != "true" {
+		return false
+	}
+	// Estende a sessão por mais 1 minuto (sliding expiration) sempre que houver atividade
+	http.SetCookie(w, &http.Cookie{
+		Name:     "admin_auth",
+		Value:    "true",
+		Path:     "/",
+		HttpOnly: true,
+		MaxAge:   60, // Reinicia contagem de 60 segundos
+	})
+	return true
+}
+
+type ConfigViewData struct {
+	Cargos   []string
+	Produtos []string
+}
+
+func (app *App) PageConfigurar(w http.ResponseWriter, r *http.Request) {
+	if !app.isAuthenticated(w, r) {
+		app.Tmpl.ExecuteTemplate(w, "login_config.html", nil)
+		return
+	}
+
+	cargos := app.GetCargos()
+	produtos := app.GetTiposProdutos()
+	app.Tmpl.ExecuteTemplate(w, "configurar.html", ConfigViewData{Cargos: cargos, Produtos: produtos})
+}
+
+func (app *App) ActionAdicionarCargo(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost {
+		if !app.isAuthenticated(w, r) {
+			http.Redirect(w, r, "/page/configurar", http.StatusSeeOther)
+			return
+		}
+
+		nome := strings.TrimSpace(r.FormValue("nome"))
+		if nome != "" {
+			app.DB.Exec("INSERT INTO cargos (nome) VALUES (?)", nome)
+		}
+		http.Redirect(w, r, "/page/configurar", http.StatusSeeOther)
+	}
+}
+
+// --- AUTENTICAÇÃO E API DE SENHA ---
+
+func (app *App) ActionLoginConfig(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost {
+		senhaInput := r.FormValue("senha")
+		senhaReal := app.GetSenha()
+
+		if senhaInput == senhaReal {
+			// Define cookie de sessão simples
+			http.SetCookie(w, &http.Cookie{
+				Name:     "admin_auth",
+				Value:    "true",
+				Path:     "/",
+				HttpOnly: true,
+				MaxAge:   60, // Expira em 1 minuto (60 segundos)
+			})
+			http.Redirect(w, r, "/page/configurar", http.StatusSeeOther)
+			return
+		}
+		alertAndBack(w, "Senha incorreta!")
+	}
+}
+
+func (app *App) APIUpdateSenha(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost {
+		// Aceita via Form ou JSON
+		novaSenha := r.FormValue("senha")
+		if novaSenha == "" {
+			var dados struct {
+				Senha string `json:"senha"`
+			}
+			json.NewDecoder(r.Body).Decode(&dados)
+			novaSenha = dados.Senha
+		}
+
+		if novaSenha != "" {
+			app.SetSenha(novaSenha)
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("Senha atualizada com sucesso!"))
+		} else {
+			http.Error(w, "Nova senha não fornecida", http.StatusBadRequest)
+		}
+	} else {
+		http.Error(w, "Método não permitido. Use POST.", http.StatusMethodNotAllowed)
+	}
+}
+
+func (app *App) ActionUpdateSenhaGET(w http.ResponseWriter, r *http.Request) {
+	// Esperado: /page/home/senha/NOVA_SENHA
+	prefix := "/page/home/senha/"
+	if !strings.HasPrefix(r.URL.Path, prefix) {
+		http.NotFound(w, r)
+		return
+	}
+
+	novaSenha := strings.TrimSpace(strings.TrimPrefix(r.URL.Path, prefix))
+	if novaSenha != "" {
+		app.SetSenha(novaSenha)
+		log.Printf("Senha de administrador alterada via URL para: %s", novaSenha)
+		http.Redirect(w, r, "/page/home", http.StatusSeeOther)
+	} else {
+		http.Error(w, "Senha vazia não permitida", http.StatusBadRequest)
+	}
+}
+
+func (app *App) ActionRemoverCargo(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost {
+		if !app.isAuthenticated(w, r) {
+			http.Redirect(w, r, "/page/configurar", http.StatusSeeOther)
+			return
+		}
+
+		nome := strings.TrimSpace(r.FormValue("nome"))
+		if _, err := app.DB.Exec("DELETE FROM cargos WHERE nome = ?", nome); err != nil {
+			log.Printf("Erro ao remover cargo: %v", err)
+		}
+		http.Redirect(w, r, "/page/configurar", http.StatusSeeOther)
+	}
+}
+
+func (app *App) ActionLogoutConfig(w http.ResponseWriter, r *http.Request) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     "admin_auth",
+		Value:    "",
+		Path:     "/",
+		MaxAge:   -1,
+		HttpOnly: true,
+	})
+	http.Redirect(w, r, "/page/home", http.StatusSeeOther)
+}
+
+// --- GERENCIAMENTO DE PRODUTOS ---
+
+func (app *App) ActionAdicionarProduto(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost {
+		if !app.isAuthenticated(w, r) {
+			http.Redirect(w, r, "/page/configurar", http.StatusSeeOther)
+			return
+		}
+
+		nome := strings.TrimSpace(r.FormValue("nome"))
+		if nome != "" {
+			app.DB.Exec("INSERT INTO tipos_produtos (nome) VALUES (?)", nome)
+		}
+		http.Redirect(w, r, "/page/configurar", http.StatusSeeOther)
+	}
+}
+
+func (app *App) ActionRemoverProduto(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost {
+		if !app.isAuthenticated(w, r) {
+			http.Redirect(w, r, "/page/configurar", http.StatusSeeOther)
+			return
+		}
+
+		nome := strings.TrimSpace(r.FormValue("nome"))
+		if _, err := app.DB.Exec("DELETE FROM tipos_produtos WHERE nome = ?", nome); err != nil {
+			log.Printf("Erro ao remover produto: %v", err)
+		}
+		http.Redirect(w, r, "/page/configurar", http.StatusSeeOther)
+	}
 }

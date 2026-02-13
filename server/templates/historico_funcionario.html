@@ -9,14 +9,38 @@
     <main class="container mt-5">
         <h2>Histórico de Retiradas: {{.Nome}}</h2>
     
-    <form method="GET" action="/page/historico_funcionario" class="form-inline">
-        <input type="hidden" name="id" value="{{.ID}}">
-        <label class="mr-2">De:</label>
-        <input type="date" name="data_inicio" value="{{.DataInicio}}" class="form-control mr-3">
-        <label class="mr-2">Até:</label>
-        <input type="date" name="data_fim" value="{{.DataFim}}" class="form-control mr-3">
-        <button type="submit" class="btn btn-primary">Filtrar Período</button>
-    </form>
+    <form method="GET" action="/page/historico_funcionario" class="form-inline mb-3">
+    <input type="hidden" name="id" value="{{.ID}}">
+    
+    <label class="mr-2">De:</label>
+    <input type="date" name="data_inicio" value="{{.DataInicio}}" class="form-control mr-2">
+    <input type="time" name="hora_inicio" value="{{.HoraInicio}}" class="form-control mr-2">
+    
+    <label class="mr-2">Até:</label>
+    <input type="date" name="data_fim" value="{{.DataFim}}" class="form-control mr-2">
+    <input type="time" name="hora_fim" value="{{.HoraFim}}" class="form-control mr-2">
+    
+    <label class="mr-2">Produto:</label>
+    <select name="produto" class="form-control mr-2" style="width: auto;">
+        <option value="">Todos</option>
+        {{range .ListaProdutos}}
+        <option value="{{.}}" {{if eq . $.ProdutoFilter}}selected{{end}}>{{.}}</option>
+        {{end}}
+    </select>
+
+    <button type="submit" class="btn btn-primary mr-2">Filtrar</button>
+    
+    <!-- Opções de Exportação -->
+    <select name="format" class="form-control mr-2" style="width: auto;">
+        <option value="csv">CSV (Padrão)</option>
+        <option value="excel">Excel (XLS)</option>
+        <option value="libre">LibreOffice (ODS)</option>
+    </select>
+    <button type="submit" name="export" value="true" class="btn btn-success">
+        &#128196; Baixar
+    </button>
+</form>
+
     <br>
 
     <div class="alert alert-secondary">
